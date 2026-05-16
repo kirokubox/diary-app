@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.vite/
+
+# Local environment files
+*.local
+.env
+.env.local
+.env.*.local
+*.log
+
+# Diary exports and backups
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+backup_json/
+diary-backup-*.json
+diary-export-*.md
+*.export.md
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

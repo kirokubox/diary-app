@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Yuki Diary icon">
+  <rect width="512" height="512" rx="112" fill="#4f6673"/>
+  <rect x="126" y="86" width="260" height="340" rx="42" fill="#fffdf8"/>
+  <path d="M184 166h144M184 224h144M184 282h100" stroke="#4f6673" stroke-width="27" stroke-linecap="round"/>
+  <path d="M356 342l48 48 64-106" fill="none" stroke="#d8b46a" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="150" cy="120" r="24" fill="#d8b46a"/>
+</svg>

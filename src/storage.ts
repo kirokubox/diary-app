@@ -14,6 +14,8 @@ function normalizeEntry(entry: DiaryEntry): DiaryEntry {
     ...entry,
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: Array.isArray(entry.scratchItems) ? entry.scratchItems : [],
+    wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
+    sleepHours: typeof entry.sleepHours === "number" ? entry.sleepHours : null,
   };
 }
 

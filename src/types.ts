@@ -1,5 +1,5 @@
-export type Energy = "高" | "中" | "低";
-export type Mood = "🙂" | "😐" | "☹️";
+export type Energy = "" | "高" | "中" | "低";
+export type Mood = "" | "🙂" | "😐" | "☹️";
 
 export interface ScratchItem {
   id: string;
@@ -13,6 +13,8 @@ export interface DiaryEntry {
   weekday: string;
   energy: Energy;
   mood: Mood;
+  wakeUpTime: string;
+  sleepHours: number | null;
   tags: string[];
   body: string;
   scratch: string;

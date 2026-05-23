@@ -307,15 +307,25 @@ main {
   font-size: 1rem;
 }
 
-.body-area textarea {
-  min-height: 50vh;
-  font-size: 1rem;
-  scroll-margin-bottom: 120px;
+.body-panel {
+  display: grid;
+  gap: 12px;
 }
 
-.details-area {
-  border-top: 1px solid #ddd0bd;
-  padding-top: 14px;
+.rhythm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(128px, 1fr));
+  gap: 10px 12px;
+}
+
+.rhythm-grid label {
+  min-width: 0;
+}
+
+.body-area textarea {
+  min-height: 32vh;
+  font-size: 1rem;
+  scroll-margin-bottom: 120px;
 }
 
 .details-toggle,
@@ -571,7 +581,7 @@ main {
   }
 
   .body-area textarea {
-    min-height: 56vh;
+    min-height: 34vh;
     font-size: 1.02rem;
   }
 
@@ -606,6 +616,12 @@ main {
 
   .import-summary {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .rhythm-grid {
+    grid-template-columns: 1fr;
   }
 }
 

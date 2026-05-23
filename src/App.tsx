@@ -24,6 +24,12 @@ import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, Tab
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CURRENT_MONTH_KEY = toDateInputValue().slice(0, 7);
+const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
+  const hour = String(Math.floor(index / 2)).padStart(2, "0");
+  const minute = index % 2 === 0 ? "00" : "30";
+  return `${hour}:${minute}`;
+});
+const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
 
 type ImportIssue = {
   index?: number;
@@ -53,8 +59,10 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
     id: date,
     date,
     weekday: weekdayOf(date),
-    energy: "中",
-    mood: "😐",
+    energy: "",
+    mood: "",
+    wakeUpTime: "",
+    sleepHours: null,
     tags: DEFAULT_TAGS,
     body: settings.template,
     scratch: "",
@@ -111,6 +119,8 @@ function normalizeImportedEntry(entry: DiaryEntry): DiaryEntry {
     tags: entry.tags.map(cleanTag).filter(Boolean),
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: normalizeScratchItems(entry.scratchItems),
+    wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
+    sleepHours: typeof entry.sleepHours === "number" ? entry.sleepHours : null,
   };
 }
 
@@ -153,11 +163,23 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
   }
 
   if (!ENERGY_OPTIONS.includes(item.energy as Energy)) {
-    errors.push({ index, date: dateForIssue, message: "energy は「高」「中」「低」のいずれかにしてください。" });
+    errors.push({ index, date: dateForIssue, message: "energy は「未入力」「高」「中」「低」のいずれかにしてください。" });
   }
 
   if (!MOOD_OPTIONS.includes(item.mood as Mood)) {
-    errors.push({ index, date: dateForIssue, message: "mood は「🙂」「😐」「☹️」のいずれかにしてください。" });
+    errors.push({ index, date: dateForIssue, message: "mood は「未入力」「🙂」「😐」「☹️」のいずれかにしてください。" });
+  }
+
+  if ("wakeUpTime" in item && typeof item.wakeUpTime !== "string") {
+    errors.push({ index, date: dateForIssue, message: "wakeUpTime は文字列にしてください。" });
+  } else if (typeof item.wakeUpTime === "string" && item.wakeUpTime && !WAKE_UP_TIME_OPTIONS.includes(item.wakeUpTime)) {
+    errors.push({ index, date: dateForIssue, message: "wakeUpTime は30分刻みの HH:mm 形式にしてください。" });
+  }
+
+  if ("sleepHours" in item && item.sleepHours !== null && typeof item.sleepHours !== "number") {
+    errors.push({ index, date: dateForIssue, message: "sleepHours は数値または null にしてください。" });
+  } else if (typeof item.sleepHours === "number" && !SLEEP_HOUR_OPTIONS.includes(item.sleepHours)) {
+    errors.push({ index, date: dateForIssue, message: "sleepHours は0.5〜12.0の0.5時間刻みにしてください。" });
   }
 
   if (!Array.isArray(item.tags) || !item.tags.every((tag) => typeof tag === "string")) {
@@ -219,8 +241,8 @@ function EntryCard({ entry, onOpen }: { entry: DiaryEntry; onOpen: (date: string
         {entry.date}（{entry.weekday}）
       </span>
       <span className="card-meta">
-        <span>気分 {entry.mood}</span>
-        <span>体力 {entry.energy}</span>
+        <span>気分 {entry.mood || "未入力"}</span>
+        <span>体力 {entry.energy || "未入力"}</span>
       </span>
       <span className="tag-row">
         {entry.tags.map((tag) => (
@@ -314,13 +336,11 @@ function Editor({
   bodyOpenVersion: number;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
-    setDetailsExpanded(false);
     setFreeScratchExpanded(false);
     setScratchDraft("");
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
@@ -345,9 +365,9 @@ function Editor({
     <div className="screen editor-screen">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">今日</p>
-          <h1>{entry.date}</h1>
-          <p className="subtle">曜日：{entry.weekday}</p>
+          <p className="eyebrow">今日のできごとと感情を、少しだけ残す日記</p>
+          <h1>季節日記</h1>
+          <p className="subtle">{entry.date}（{entry.weekday}）</p>
         </div>
         <div className={`save-badge ${saveState}`}>
           {saveState === "saving" ? "保存中..." : saveState === "saved" ? "保存済み" : "編集中"}
@@ -375,11 +395,65 @@ function Editor({
           {bodyExpanded ? "日記本文を閉じる" : "日記本文を書く・広げる"}
         </button>
         {bodyExpanded && (
-          <textarea
-            value={entry.body}
-            onChange={(event) => onChange({ ...entry, body: event.target.value })}
-            placeholder="今日の出来事、感情、思考を自由に書く"
-          />
+          <div className="body-panel">
+            <div className="rhythm-grid">
+              <label>
+                気分
+                <select value={entry.mood} onChange={(event) => onChange({ ...entry, mood: event.target.value as Mood })}>
+                  {MOOD_OPTIONS.map((mood) => (
+                    <option key={mood || "none"} value={mood}>
+                      {mood || "未入力"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                体力
+                <select value={entry.energy} onChange={(event) => onChange({ ...entry, energy: event.target.value as Energy })}>
+                  {ENERGY_OPTIONS.map((energy) => (
+                    <option key={energy || "none"} value={energy}>
+                      {energy || "未入力"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                起床時間
+                <select value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })}>
+                  <option value="">未入力</option>
+                  {WAKE_UP_TIME_OPTIONS.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                睡眠時間
+                <select
+                  value={entry.sleepHours ?? ""}
+                  onChange={(event) =>
+                    onChange({ ...entry, sleepHours: event.target.value ? Number(event.target.value) : null })
+                  }
+                >
+                  <option value="">未入力</option>
+                  {SLEEP_HOUR_OPTIONS.map((hours) => (
+                    <option key={hours} value={hours}>
+                      {hours.toFixed(1)}時間
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              日記本文
+              <textarea
+                value={entry.body}
+                onChange={(event) => onChange({ ...entry, body: event.target.value })}
+                placeholder="今日の出来事、感情、思考を自由に書く"
+              />
+            </label>
+          </div>
         )}
       </section>
 
@@ -432,46 +506,6 @@ function Editor({
         onChange={(tags) => onChange({ ...entry, tags })}
         onAddOption={onAddTagOption}
       />
-
-      <section className="field-group details-area">
-        <button className="details-toggle" type="button" onClick={() => setDetailsExpanded((expanded) => !expanded)}>
-          {detailsExpanded ? "詳細項目を閉じる" : "詳細項目を開く"}
-        </button>
-        {detailsExpanded && (
-          <div className="control-grid">
-            <div className="field-group">
-              <label>気分</label>
-              <div className="segmented mood">
-                {MOOD_OPTIONS.map((mood) => (
-                  <button
-                    className={entry.mood === mood ? "active" : ""}
-                    key={mood}
-                    onClick={() => onChange({ ...entry, mood })}
-                    type="button"
-                  >
-                    {mood}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="field-group">
-              <label>体力</label>
-              <div className="segmented">
-                {ENERGY_OPTIONS.map((energy) => (
-                  <button
-                    className={entry.energy === energy ? "active" : ""}
-                    key={energy}
-                    onClick={() => onChange({ ...entry, energy })}
-                    type="button"
-                  >
-                    {energy}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
 
       <div className="status-line">最終保存：{timeOnly(entry.updatedAt)}</div>
 
@@ -573,6 +607,8 @@ export default function App() {
       tags: target.tags.map(cleanTag).filter(Boolean),
       scratch: typeof target.scratch === "string" ? target.scratch : "",
       scratchItems: normalizeScratchItems(target.scratchItems),
+      wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
+      sleepHours: typeof target.sleepHours === "number" ? target.sleepHours : null,
     };
     await saveEntry(saved);
     setEntry(saved);
@@ -912,7 +948,7 @@ export default function App() {
                     気分
                     <select value={moodFilter} onChange={(event) => setMoodFilter(event.target.value)}>
                       <option value="">すべて</option>
-                      {MOOD_OPTIONS.map((mood) => (
+                      {MOOD_OPTIONS.filter(Boolean).map((mood) => (
                         <option key={mood} value={mood}>
                           {mood}
                         </option>
@@ -923,7 +959,7 @@ export default function App() {
                     体力
                     <select value={energyFilter} onChange={(event) => setEnergyFilter(event.target.value)}>
                       <option value="">すべて</option>
-                      {ENERGY_OPTIONS.map((energy) => (
+                      {ENERGY_OPTIONS.filter(Boolean).map((energy) => (
                         <option key={energy} value={energy}>
                           {energy}
                         </option>

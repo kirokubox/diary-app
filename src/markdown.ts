@@ -2,7 +2,11 @@ import { formatDateJa, nowIsoLocal, timeOnly } from "./dateUtils";
 import type { DiaryEntry } from "./types";
 
 function valueOrNone(value: string | undefined): string {
-  return value?.trim() || "なし";
+  return value?.trim() || "未入力";
+}
+
+function sleepHoursLabel(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value.toFixed(1)}時間` : "未入力";
 }
 
 export function entryToMarkdown(entry: DiaryEntry): string {
@@ -34,7 +38,9 @@ ${tags}
 ### 気分・体力
 
 - 気分：${valueOrNone(entry.mood)}
-- 体力：${valueOrNone(entry.energy)}`;
+- 体力：${valueOrNone(entry.energy)}
+- 起床時間：${valueOrNone(entry.wakeUpTime)}
+- 睡眠時間：${sleepHoursLabel(entry.sleepHours)}`;
 }
 
 export function entriesToMarkdown(entries: DiaryEntry[]): string {

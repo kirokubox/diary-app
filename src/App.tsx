@@ -30,6 +30,8 @@ const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   return `${hour}:${minute}`;
 });
 const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
+const WAKE_UP_TIME_SELECT_OPTIONS = WAKE_UP_TIME_OPTIONS.flatMap((time) => (time === "05:30" ? [time, ""] : [time]));
+const SLEEP_HOUR_SELECT_OPTIONS = SLEEP_HOUR_OPTIONS.flatMap((hours) => (hours === 4.5 ? [hours, null] : [hours]));
 
 type ImportIssue = {
   index?: number;
@@ -88,6 +90,17 @@ function monthKeyOf(date: string): string {
 function monthLabel(monthKey: string): string {
   const [year, month] = monthKey.split("-");
   return `${year}年${Number(month)}月`;
+}
+
+function sleepHoursMeta(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value.toFixed(1)}h` : "";
+}
+
+function rhythmMeta(entry: DiaryEntry): string[] {
+  return [
+    entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
+    sleepHoursMeta(entry.sleepHours) ? `睡眠 ${sleepHoursMeta(entry.sleepHours)}` : "",
+  ].filter(Boolean);
 }
 
 function makeScratchItem(text: string): ScratchItem {
@@ -235,11 +248,13 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
 }
 
 function EntryCard({ entry, onOpen }: { entry: DiaryEntry; onOpen: (date: string) => void | Promise<void> }) {
+  const rhythmItems = rhythmMeta(entry);
   return (
     <button className="entry-card" onClick={() => onOpen(entry.date)}>
       <span className="card-date">
         {entry.date}（{entry.weekday}）
       </span>
+      {rhythmItems.length > 0 && <span className="card-rhythm">{rhythmItems.join("　")}</span>}
       <span className="card-meta">
         <span>気分 {entry.mood || "未入力"}</span>
         <span>体力 {entry.energy || "未入力"}</span>
@@ -420,10 +435,9 @@ function Editor({
               <label>
                 起床時間
                 <select value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })}>
-                  <option value="">未入力</option>
-                  {WAKE_UP_TIME_OPTIONS.map((time) => (
-                    <option key={time} value={time}>
-                      {time}
+                  {WAKE_UP_TIME_SELECT_OPTIONS.map((time) => (
+                    <option key={time || "none"} value={time}>
+                      {time || "未入力"}
                     </option>
                   ))}
                 </select>
@@ -436,10 +450,9 @@ function Editor({
                     onChange({ ...entry, sleepHours: event.target.value ? Number(event.target.value) : null })
                   }
                 >
-                  <option value="">未入力</option>
-                  {SLEEP_HOUR_OPTIONS.map((hours) => (
-                    <option key={hours} value={hours}>
-                      {hours.toFixed(1)}時間
+                  {SLEEP_HOUR_SELECT_OPTIONS.map((hours) => (
+                    <option key={hours ?? "none"} value={hours ?? ""}>
+                      {typeof hours === "number" ? `${hours.toFixed(1)}時間` : "未入力"}
                     </option>
                   ))}
                 </select>

@@ -419,6 +419,13 @@ main {
   font-weight: 700;
 }
 
+.card-rhythm {
+  color: #746b61;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .card-preview {
   color: #3e3934;
   line-height: 1.55;

@@ -405,9 +405,9 @@ function Editor({
       </div>
 
       <section className="field-group body-area">
-        <label>今日の日記本文</label>
+        <label>振り返りを書く</label>
         <button className="body-toggle primary" type="button" onClick={() => setBodyExpanded((expanded) => !expanded)}>
-          {bodyExpanded ? "日記本文を閉じる" : "日記本文を書く・広げる"}
+          {bodyExpanded ? "振り返りを閉じる" : "振り返りを書く"}
         </button>
         {bodyExpanded && (
           <div className="body-panel">
@@ -459,14 +459,27 @@ function Editor({
               </label>
             </div>
             <label>
-              日記本文
+              振り返り
               <textarea
                 value={entry.body}
                 onChange={(event) => onChange({ ...entry, body: event.target.value })}
-                placeholder="今日の出来事、感情、思考を自由に書く"
+                placeholder="今日の出来事、感情、思考を振り返る"
               />
             </label>
           </div>
+        )}
+      </section>
+
+      <section className="field-group free-diary-area">
+        <button className="details-toggle" type="button" onClick={() => setFreeScratchExpanded((expanded) => !expanded)}>
+          {freeScratchExpanded ? "日記を閉じる" : "日記を書く"}
+        </button>
+        {freeScratchExpanded && (
+          <textarea
+            value={entry.scratch}
+            onChange={(event) => onChange({ ...entry, scratch: event.target.value })}
+            placeholder="日記を書く"
+          />
         )}
       </section>
 
@@ -501,16 +514,6 @@ function Editor({
             </ul>
           )}
         </div>
-        <button className="details-toggle" type="button" onClick={() => setFreeScratchExpanded((expanded) => !expanded)}>
-          {freeScratchExpanded ? "自由メモ欄を閉じる" : "自由メモ欄を開く"}
-        </button>
-        {freeScratchExpanded && (
-          <textarea
-            value={entry.scratch}
-            onChange={(event) => onChange({ ...entry, scratch: event.target.value })}
-            placeholder="自由メモ欄"
-          />
-        )}
       </section>
 
       <TagPicker
@@ -995,7 +998,7 @@ export default function App() {
             <header className="screen-header">
               <div>
                 <p className="eyebrow">設定</p>
-                <h1>管理</h1>
+                <h1>設定</h1>
               </div>
             </header>
 
@@ -1173,7 +1176,7 @@ export default function App() {
 
       <nav className="bottom-tabs" aria-label="画面切り替え">
         {[
-          ["today", "今日"],
+          ["today", "日記"],
           ["list", "一覧"],
           ["search", "検索"],
           ["settings", "設定"],

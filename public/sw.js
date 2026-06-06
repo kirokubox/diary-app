@@ -1,5 +1,13 @@
-const CACHE_NAME = "yuki-diary-app-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
+const CACHE_NAME = "seasonal-diary-app-v2";
+const APP_BASE = new URL(self.registration.scope).pathname;
+const INDEX_URL = `${APP_BASE}index.html`;
+const APP_SHELL = [
+  APP_BASE,
+  INDEX_URL,
+  `${APP_BASE}manifest.webmanifest`,
+  `${APP_BASE}icons/icon-192.png`,
+  `${APP_BASE}icons/icon-512.png`,
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -31,10 +39,10 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(INDEX_URL, copy));
           return response;
         })
-        .catch(() => caches.match("/index.html")),
+        .catch(() => caches.match(INDEX_URL)),
     );
     return;
   }

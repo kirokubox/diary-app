@@ -1,24 +1,25 @@
 {
-  "name": "Yuki Diary",
-  "short_name": "Diary",
-  "description": "自分専用のWeb日記アプリ",
-  "start_url": "/",
-  "scope": "/",
+  "id": "/diary-app/",
+  "name": "季節日記",
+  "short_name": "季節日記",
+  "description": "毎日の振り返り、日記本文、らくがき帳を記録する個人用Webアプリ",
+  "start_url": "/diary-app/",
+  "scope": "/diary-app/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#fffdf8",
-  "theme_color": "#4f6673",
+  "background_color": "#f7faf8",
+  "theme_color": "#8aa9b8",
   "icons": [
     {
-      "src": "/icons/icon-192.svg",
+      "src": "/diary-app/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/icon-512.svg",
+      "src": "/diary-app/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

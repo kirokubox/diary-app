@@ -23,6 +23,7 @@ import {
 import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, TabKey } from "./types";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DIARY_TASK_CANDIDATES_KEY = "yuki-app-bridge-diary-task-candidates-v1";
 const CURRENT_MONTH_KEY = toDateInputValue().slice(0, 7);
 const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   const hour = String(Math.floor(index / 2)).padStart(2, "0");
@@ -53,6 +54,33 @@ type ImportPreview = {
   errors: ImportIssue[];
   warnings: ImportIssue[];
   settingsFound: boolean;
+};
+
+type DiaryTaskCandidateStatus =
+  | "pending"
+  | "addedToday"
+  | "addedSoon"
+  | "addedSomeday"
+  | "completed"
+  | "dismissed";
+
+type DiaryTaskCandidate = {
+  id: string;
+  sourceApp: "season-diary";
+  type: "taskCandidate";
+  title: string;
+  sourceText: string;
+  sourceDate: string;
+  sourceMemoId?: string;
+  createdAt: string;
+  status: DiaryTaskCandidateStatus;
+  processedAt?: string;
+  targetTaskId?: string;
+};
+
+type CandidateDraft = {
+  memo: ScratchItem;
+  title: string;
 };
 
 function makeEntry(date: string, settings: AppSettings): DiaryEntry {
@@ -110,6 +138,52 @@ function makeScratchItem(text: string): ScratchItem {
     text,
     createdAt: stamp,
   };
+}
+
+function makeBridgeCandidateId() {
+  return `diary-task-${nowIsoLocal()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function candidateTitleFromText(text: string) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 48 ? compact.slice(0, 48) : compact;
+}
+
+function isDiaryTaskCandidate(value: unknown): value is DiaryTaskCandidate {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<DiaryTaskCandidate>;
+  return (
+    typeof item.id === "string" &&
+    item.sourceApp === "season-diary" &&
+    item.type === "taskCandidate" &&
+    typeof item.title === "string" &&
+    typeof item.sourceText === "string" &&
+    typeof item.sourceDate === "string" &&
+    typeof item.createdAt === "string" &&
+    ["pending", "addedToday", "addedSoon", "addedSomeday", "completed", "dismissed"].includes(item.status ?? "")
+  );
+}
+
+function loadDiaryTaskCandidates(): DiaryTaskCandidate[] {
+  try {
+    const raw = localStorage.getItem(DIARY_TASK_CANDIDATES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isDiaryTaskCandidate) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDiaryTaskCandidates(candidates: DiaryTaskCandidate[]) {
+  localStorage.setItem(DIARY_TASK_CANDIDATES_KEY, JSON.stringify(candidates));
+}
+
+function activeCandidateForMemo(candidates: DiaryTaskCandidate[], entryDate: string, item: ScratchItem) {
+  return candidates.find((candidate) =>
+    candidate.status !== "dismissed" &&
+    (candidate.sourceMemoId === item.id || (candidate.sourceText === item.text && candidate.sourceDate === entryDate)),
+  );
 }
 
 function normalizeScratchItems(value: unknown): ScratchItem[] {
@@ -335,6 +409,7 @@ function Editor({
   onMoveDate,
   onDelete,
   onAddTagOption,
+  onNotify,
   initialBodyExpanded,
   bodyOpenVersion,
 }: {
@@ -347,17 +422,26 @@ function Editor({
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
   onAddTagOption: (tag: string) => void;
+  onNotify: (message: string) => void;
   initialBodyExpanded: boolean;
   bodyOpenVersion: number;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
+  const [bridgeCandidates, setBridgeCandidates] = useState<DiaryTaskCandidate[]>(() => loadDiaryTaskCandidates());
+  const [candidateSelectMode, setCandidateSelectMode] = useState(false);
+  const [selectedScratchIds, setSelectedScratchIds] = useState<string[]>([]);
+  const [candidateDrafts, setCandidateDrafts] = useState<CandidateDraft[]>([]);
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
     setFreeScratchExpanded(false);
     setScratchDraft("");
+    setBridgeCandidates(loadDiaryTaskCandidates());
+    setCandidateSelectMode(false);
+    setSelectedScratchIds([]);
+    setCandidateDrafts([]);
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
 
   const sortedScratchItems = useMemo(
@@ -374,6 +458,62 @@ function Editor({
 
   function removeScratchItem(id: string) {
     onChange({ ...entry, scratchItems: entry.scratchItems.filter((item) => item.id !== id) });
+  }
+
+  function toggleCandidateSelection(id: string) {
+    setSelectedScratchIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function openCandidateDrafts() {
+    const selected = sortedScratchItems.filter((item) => selectedScratchIds.includes(item.id));
+    if (selected.length === 0) {
+      onNotify("候補にするメモを選んでください");
+      return;
+    }
+    setCandidateDrafts(selected.map((memo) => ({ memo, title: candidateTitleFromText(memo.text) })));
+  }
+
+  function updateCandidateDraft(id: string, title: string) {
+    setCandidateDrafts((current) => current.map((draft) => draft.memo.id === id ? { ...draft, title } : draft));
+  }
+
+  function cancelCandidateMode() {
+    setCandidateSelectMode(false);
+    setSelectedScratchIds([]);
+    setCandidateDrafts([]);
+  }
+
+  function sendCandidateDrafts() {
+    const current = loadDiaryTaskCandidates();
+    const next = [...current];
+    let added = 0;
+    let duplicated = 0;
+    candidateDrafts.forEach((draft) => {
+      const title = draft.title.trim();
+      if (!title) return;
+      const duplicate = activeCandidateForMemo(next, entry.date, draft.memo);
+      if (duplicate) {
+        duplicated += 1;
+        return;
+      }
+      next.push({
+        id: makeBridgeCandidateId(),
+        sourceApp: "season-diary",
+        type: "taskCandidate",
+        title,
+        sourceText: draft.memo.text,
+        sourceDate: entry.date,
+        sourceMemoId: draft.memo.id,
+        createdAt: nowIsoLocal(),
+        status: "pending",
+      });
+      added += 1;
+    });
+    saveDiaryTaskCandidates(next);
+    setBridgeCandidates(next);
+    cancelCandidateMode();
+    if (added > 0) onNotify(`${added}件をゆるたすく候補に送りました`);
+    if (duplicated > 0 && added === 0) onNotify("すでにゆるたすく候補に送っています。");
   }
 
   return (
@@ -495,23 +635,76 @@ function Editor({
           らくがきメモを追加
         </button>
         <div className="scratch-history">
-          <h2>今日のメモ履歴</h2>
+          <div className="scratch-history-head">
+            <h2>今日のメモ履歴</h2>
+            {sortedScratchItems.length > 0 && !candidateSelectMode && (
+              <button className="subtle-button" type="button" onClick={() => setCandidateSelectMode(true)}>
+                ゆるたすく候補を選ぶ
+              </button>
+            )}
+          </div>
           {sortedScratchItems.length === 0 ? (
             <p className="empty">まだメモはありません。</p>
           ) : (
             <ul>
               {sortedScratchItems.map((item) => (
                 <li key={item.id}>
+                  {candidateSelectMode && (
+                    <label className="scratch-select-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedScratchIds.includes(item.id)}
+                        disabled={Boolean(activeCandidateForMemo(bridgeCandidates, entry.date, item))}
+                        onChange={() => toggleCandidateSelection(item.id)}
+                      />
+                      <span className="sr-only">候補に選ぶ</span>
+                    </label>
+                  )}
                   <div>
                     <time>{timeOnly(item.createdAt)}</time>
                     <p>{item.text}</p>
+                    {activeCandidateForMemo(bridgeCandidates, entry.date, item) && <span className="sent-label">送信済み</span>}
                   </div>
-                  <button className="small-danger" type="button" onClick={() => removeScratchItem(item.id)}>
-                    削除
-                  </button>
+                  {!candidateSelectMode && (
+                    <button className="small-danger" type="button" onClick={() => removeScratchItem(item.id)}>
+                      削除
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
+          )}
+          {candidateSelectMode && candidateDrafts.length === 0 && (
+            <div className="candidate-actions">
+              <button className="primary" type="button" onClick={openCandidateDrafts}>
+                選んだメモをゆるたすく候補にする
+              </button>
+              <button type="button" onClick={cancelCandidateMode}>
+                キャンセル
+              </button>
+            </div>
+          )}
+          {candidateDrafts.length > 0 && (
+            <div className="candidate-draft-panel">
+              <h3>ゆるたすく候補にする内容</h3>
+              {candidateDrafts.map((draft) => (
+                <div className="candidate-draft-item" key={draft.memo.id}>
+                  <p className="candidate-source">元メモ：{draft.memo.text}</p>
+                  <label>
+                    候補タイトル
+                    <input value={draft.title} onChange={(event) => updateCandidateDraft(draft.memo.id, event.target.value)} />
+                  </label>
+                </div>
+              ))}
+              <div className="candidate-actions">
+                <button className="primary" type="button" onClick={sendCandidateDrafts}>
+                  ゆるたすく候補に送る
+                </button>
+                <button type="button" onClick={cancelCandidateMode}>
+                  キャンセル
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </section>
@@ -867,6 +1060,7 @@ export default function App() {
             onMoveDate={openDate}
             onDelete={() => void removeCurrentEntry()}
             onAddTagOption={(tag) => void addTagOption(tag)}
+            onNotify={notify}
             initialBodyExpanded={initialBodyExpanded}
             bodyOpenVersion={bodyOpenVersion}
           />

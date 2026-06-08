@@ -414,6 +414,72 @@ main {
   scroll-margin-bottom: 120px;
 }
 
+.material-box {
+  border: 1px solid #d5e0e3;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.material-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.material-box h2,
+.material-box h3 {
+  margin: 0;
+}
+
+.material-box h2 {
+  font-size: 1rem;
+}
+
+.material-box h3 {
+  color: #45606b;
+  font-size: 0.92rem;
+}
+
+.material-box-head span {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #edf5f7;
+  color: #45606b;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.material-list {
+  display: grid;
+  gap: 10px;
+}
+
+.material-item {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #e6eef0;
+  padding-top: 10px;
+}
+
+.material-item p {
+  color: #30414a;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.material-memo {
+  color: #5f7078;
+  font-size: 0.9rem;
+}
+
+.material-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
 .details-toggle,
 .show-more-month {
   width: 100%;

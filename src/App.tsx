@@ -24,6 +24,7 @@ import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, Tab
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DIARY_TASK_CANDIDATES_KEY = "yuki-app-bridge-diary-task-candidates-v1";
+const TASK_DIARY_COMPLETIONS_KEY = "yuki-app-bridge-task-diary-completions-v1";
 const CURRENT_MONTH_KEY = toDateInputValue().slice(0, 7);
 const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   const hour = String(Math.floor(index / 2)).padStart(2, "0");
@@ -81,6 +82,26 @@ type DiaryTaskCandidate = {
 type CandidateDraft = {
   memo: ScratchItem;
   title: string;
+};
+
+type TaskDiaryCompletionBridgeStatus = "pending" | "imported" | "dismissed";
+
+type TaskDiaryCompletionBridgeItem = {
+  id: string;
+  sourceApp: "yuru-task";
+  type: "taskCompletion";
+  sourceTaskId: string;
+  title: string;
+  memo?: string;
+  completedAt: string;
+  completedLifeDate: string;
+  durationMinutes: number | null;
+  category?: string;
+  createdAt: string;
+  updatedAt: string;
+  status: TaskDiaryCompletionBridgeStatus;
+  processedAt?: string;
+  targetDiaryDate?: string;
 };
 
 function makeEntry(date: string, settings: AppSettings): DiaryEntry {
@@ -177,6 +198,70 @@ function loadDiaryTaskCandidates(): DiaryTaskCandidate[] {
 
 function saveDiaryTaskCandidates(candidates: DiaryTaskCandidate[]) {
   localStorage.setItem(DIARY_TASK_CANDIDATES_KEY, JSON.stringify(candidates));
+}
+
+function isTaskDiaryCompletionBridgeItem(value: unknown): value is TaskDiaryCompletionBridgeItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<TaskDiaryCompletionBridgeItem>;
+  return (
+    typeof item.id === "string" &&
+    item.sourceApp === "yuru-task" &&
+    item.type === "taskCompletion" &&
+    typeof item.sourceTaskId === "string" &&
+    typeof item.title === "string" &&
+    typeof item.completedAt === "string" &&
+    typeof item.completedLifeDate === "string" &&
+    (item.durationMinutes === null || typeof item.durationMinutes === "number") &&
+    typeof item.createdAt === "string" &&
+    typeof item.updatedAt === "string" &&
+    ["pending", "imported", "dismissed"].includes(item.status ?? "")
+  );
+}
+
+function loadTaskDiaryCompletionBridgeItems(): TaskDiaryCompletionBridgeItem[] {
+  try {
+    const raw = localStorage.getItem(TASK_DIARY_COMPLETIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isTaskDiaryCompletionBridgeItem) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTaskDiaryCompletionBridgeItems(items: TaskDiaryCompletionBridgeItem[]) {
+  localStorage.setItem(TASK_DIARY_COMPLETIONS_KEY, JSON.stringify(items));
+}
+
+function formatTaskDuration(minutes: number | null) {
+  if (minutes === null) return "";
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}時間` : `${hours}時間${rest}分`;
+}
+
+function taskCompletionLine(item: TaskDiaryCompletionBridgeItem) {
+  const time = item.completedAt.slice(11, 16);
+  const duration = formatTaskDuration(item.durationMinutes);
+  return `${time}　${item.title}${duration ? `（${duration}）` : ""}`;
+}
+
+function appendTodayFact(body: string, line: string) {
+  const heading = "■1. 今日の事実";
+  const bullet = `・${line}`;
+  const headingIndex = body.indexOf(heading);
+  if (headingIndex < 0) return `${heading}\n${bullet}\n\n${body}`;
+  const afterHeadingIndex = headingIndex + heading.length;
+  const nextSectionIndex = body.slice(afterHeadingIndex).search(/\n■\d+\./);
+  if (nextSectionIndex < 0) {
+    const trimmed = body.replace(/\s*$/, "");
+    return `${trimmed}\n${bullet}`;
+  }
+  const insertIndex = afterHeadingIndex + nextSectionIndex;
+  const before = body.slice(0, insertIndex).replace(/\s*$/, "");
+  const after = body.slice(insertIndex);
+  return `${before}\n${bullet}\n${after}`;
 }
 
 function activeCandidateForMemo(candidates: DiaryTaskCandidate[], entryDate: string, item: ScratchItem) {
@@ -430,6 +515,7 @@ function Editor({
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
   const [bridgeCandidates, setBridgeCandidates] = useState<DiaryTaskCandidate[]>(() => loadDiaryTaskCandidates());
+  const [taskCompletionItems, setTaskCompletionItems] = useState<TaskDiaryCompletionBridgeItem[]>(() => loadTaskDiaryCompletionBridgeItems());
   const [candidateSelectMode, setCandidateSelectMode] = useState(false);
   const [selectedScratchIds, setSelectedScratchIds] = useState<string[]>([]);
   const [candidateDrafts, setCandidateDrafts] = useState<CandidateDraft[]>([]);
@@ -439,14 +525,30 @@ function Editor({
     setFreeScratchExpanded(false);
     setScratchDraft("");
     setBridgeCandidates(loadDiaryTaskCandidates());
+    setTaskCompletionItems(loadTaskDiaryCompletionBridgeItems());
     setCandidateSelectMode(false);
     setSelectedScratchIds([]);
     setCandidateDrafts([]);
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
 
+  useEffect(() => {
+    const refreshBridgeItems = (event: StorageEvent) => {
+      if (event.key === TASK_DIARY_COMPLETIONS_KEY) setTaskCompletionItems(loadTaskDiaryCompletionBridgeItems());
+      if (event.key === DIARY_TASK_CANDIDATES_KEY) setBridgeCandidates(loadDiaryTaskCandidates());
+    };
+    window.addEventListener("storage", refreshBridgeItems);
+    return () => window.removeEventListener("storage", refreshBridgeItems);
+  }, []);
+
   const sortedScratchItems = useMemo(
     () => [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [entry.scratchItems],
+  );
+  const todayTaskCompletionItems = useMemo(
+    () => taskCompletionItems
+      .filter((item) => item.status === "pending" && item.completedLifeDate === entry.date)
+      .sort((a, b) => a.completedAt.localeCompare(b.completedAt)),
+    [taskCompletionItems, entry.date],
   );
 
   function addScratchItem() {
@@ -514,6 +616,36 @@ function Editor({
     cancelCandidateMode();
     if (added > 0) onNotify(`${added}件をゆるたすく候補に送りました`);
     if (duplicated > 0 && added === 0) onNotify("すでにゆるたすく候補に送っています。");
+  }
+
+  function updateTaskCompletionItem(itemId: string, status: TaskDiaryCompletionBridgeStatus) {
+    const current = loadTaskDiaryCompletionBridgeItems();
+    const now = nowIsoLocal();
+    const next = current.map((item) => item.id === itemId ? {
+      ...item,
+      status,
+      processedAt: now,
+      targetDiaryDate: entry.date,
+      updatedAt: now,
+    } : item);
+    saveTaskDiaryCompletionBridgeItems(next);
+    setTaskCompletionItems(next);
+  }
+
+  function importTaskCompletionItem(item: TaskDiaryCompletionBridgeItem) {
+    const line = taskCompletionLine(item);
+    const ok = window.confirm(`今日の事実に追加しますか？\n\n・${line}`);
+    if (!ok) return;
+    onChange({ ...entry, body: appendTodayFact(entry.body, line) });
+    updateTaskCompletionItem(item.id, "imported");
+    onNotify("今日の事実に追加しました");
+  }
+
+  function dismissTaskCompletionItem(item: TaskDiaryCompletionBridgeItem) {
+    const ok = window.confirm("この素材を使わないにしますか？");
+    if (!ok) return;
+    updateTaskCompletionItem(item.id, "dismissed");
+    onNotify("素材を使わないにしました");
   }
 
   return (
@@ -606,6 +738,34 @@ function Editor({
                 placeholder="今日の出来事、感情、思考を振り返る"
               />
             </label>
+          </div>
+        )}
+      </section>
+
+      <section className="field-group material-box">
+        <div className="material-box-head">
+          <h2>今日の素材箱</h2>
+          <span>{todayTaskCompletionItems.length}件</span>
+        </div>
+        <h3>ゆるたすく完了ログ</h3>
+        {todayTaskCompletionItems.length === 0 ? (
+          <p className="empty">今日のゆるたすく完了ログはまだありません。</p>
+        ) : (
+          <div className="material-list">
+            {todayTaskCompletionItems.map((item) => (
+              <article className="material-item" key={item.id}>
+                <p>{taskCompletionLine(item)}</p>
+                {item.memo && <p className="material-memo">{item.memo}</p>}
+                <div className="material-actions">
+                  <button className="primary" type="button" onClick={() => importTaskCompletionItem(item)}>
+                    今日の事実に追加
+                  </button>
+                  <button type="button" onClick={() => dismissTaskCompletionItem(item)}>
+                    使わない
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>

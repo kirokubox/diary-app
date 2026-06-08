@@ -19,6 +19,16 @@ function normalizeEntry(entry: DiaryEntry): DiaryEntry {
   };
 }
 
+function normalizeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    dayBoundaryTime: ["00:00", "03:00", "04:00", "05:00", "06:00"].includes(settings?.dayBoundaryTime ?? "")
+      ? settings?.dayBoundaryTime ?? DEFAULT_SETTINGS.dayBoundaryTime
+      : DEFAULT_SETTINGS.dayBoundaryTime,
+  };
+}
+
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -79,10 +89,10 @@ export async function clearEntries(): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const settings = await store<AppSettings | undefined>(SETTINGS_STORE, "readonly", (s) =>
+  const settings = await store<Partial<AppSettings> | undefined>(SETTINGS_STORE, "readonly", (s) =>
     s.get(SETTINGS_KEY),
   );
-  return settings ?? DEFAULT_SETTINGS;
+  return normalizeSettings(settings);
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

@@ -179,6 +179,10 @@ main {
   margin-bottom: 18px;
 }
 
+.settings-field {
+  max-width: 320px;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

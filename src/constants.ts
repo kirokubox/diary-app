@@ -56,9 +56,11 @@ export const DEFAULT_TAG_OPTIONS = [
 export const DEFAULT_TAGS = ["日記", "自分分析", "感情分析"];
 export const ENERGY_OPTIONS: Energy[] = ["", "高", "中", "低"];
 export const MOOD_OPTIONS: Mood[] = ["", "🙂", "😐", "☹️"];
+export const DAY_BOUNDARY_OPTIONS = ["00:00", "03:00", "04:00", "05:00", "06:00"] as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   template: DEFAULT_TEMPLATE,
   tagOptions: DEFAULT_TAG_OPTIONS,
   version: APP_VERSION,
+  dayBoundaryTime: "05:00",
 };

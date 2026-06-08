@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   APP_VERSION,
+  DAY_BOUNDARY_OPTIONS,
   DEFAULT_SETTINGS,
   DEFAULT_TAGS,
   DEFAULT_TEMPLATE,
@@ -262,6 +263,14 @@ function appendTodayFact(body: string, line: string) {
   const before = body.slice(0, insertIndex).replace(/\s*$/, "");
   const after = body.slice(insertIndex);
   return `${before}\n${bullet}\n${after}`;
+}
+
+function getLifeDateKey(date: Date, dayBoundaryTime: string): string {
+  const [hoursText, minutesText] = dayBoundaryTime.split(":");
+  const boundaryMinutes = Number(hoursText) * 60 + Number(minutesText);
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  const dateKey = toDateInputValue(date);
+  return currentMinutes < boundaryMinutes ? addDays(dateKey, -1) : dateKey;
 }
 
 function activeCandidateForMemo(candidates: DiaryTaskCandidate[], entryDate: string, item: ScratchItem) {
@@ -930,11 +939,13 @@ export default function App() {
   useEffect(() => {
     async function init() {
       const loadedSettings = await getSettings();
-      const loadedEntry = await getEntry(activeDate);
+      const initialDate = getLifeDateKey(new Date(), loadedSettings.dayBoundaryTime);
+      const loadedEntry = await getEntry(initialDate);
       setSettings(loadedSettings);
       setTemplateDraft(loadedSettings.template);
       setEntries(await getAllEntries());
-      setEntry(loadedEntry ?? makeEntry(activeDate, loadedSettings));
+      setActiveDate(initialDate);
+      setEntry(loadedEntry ?? makeEntry(initialDate, loadedSettings));
       hydrated.current = true;
     }
     void init();
@@ -1186,6 +1197,13 @@ export default function App() {
     notify("テンプレートを保存しました");
   }
 
+  async function saveDayBoundaryTime(dayBoundaryTime: string) {
+    const next = { ...settings, dayBoundaryTime };
+    setSettings(next);
+    await saveSettings(next);
+    notify("生活日付設定を保存しました");
+  }
+
   async function resetTemplate() {
     const next = { ...settings, template: DEFAULT_TEMPLATE };
     setSettings(next);
@@ -1355,6 +1373,24 @@ export default function App() {
                 <h1>設定</h1>
               </div>
             </header>
+
+            <section className="settings-section">
+              <h2>生活日付設定</h2>
+              <p className="notice">
+                日付切り替え時刻より前の時間帯は、前日の記録として扱います。
+                例：05:00に設定すると、深夜1:00の記録は前日分として開きます。
+              </p>
+              <label className="settings-field">
+                日付切り替え時刻
+                <select value={settings.dayBoundaryTime} onChange={(event) => void saveDayBoundaryTime(event.target.value)}>
+                  {DAY_BOUNDARY_OPTIONS.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
 
             <section className="settings-section">
               <h2>テンプレート編集</h2>

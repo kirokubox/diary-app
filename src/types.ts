@@ -27,6 +27,7 @@ export interface AppSettings {
   template: string;
   tagOptions: string[];
   version: string;
+  dayBoundaryTime: string;
 }
 
 export interface DiaryExport {

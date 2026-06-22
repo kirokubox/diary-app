@@ -1,51 +1,62 @@
 import { formatDateJa, nowIsoLocal, timeOnly } from "./dateUtils";
 import type { DiaryEntry } from "./types";
 
-function valueOrNone(value: string | undefined): string {
-  return value?.trim() || "未入力";
+function valueOrBlank(value: string | undefined): string {
+  return value?.trim() ?? "";
 }
 
-function sleepHoursLabel(value: number | null | undefined): string {
-  return typeof value === "number" ? `${value.toFixed(1)}時間` : "未入力";
+function hoursValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "未入力") return null;
+  const numeric = Number(trimmed.replace("時間", ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function hoursLabel(value: unknown): string {
+  const hours = hoursValue(value);
+  return hours === null ? "" : `${hours.toFixed(1)}時間`;
 }
 
 export function entryToMarkdown(entry: DiaryEntry): string {
-  const tags = entry.tags.length > 0 ? entry.tags.map((tag) => `#${tag}`).join(" ") : "なし";
+  const tags = entry.tags.length > 0 ? entry.tags.map((tag) => `#${tag}`).join(" ") : "";
   const scratchItems = [...(entry.scratchItems ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const scratchHistory =
-    scratchItems.length > 0
-      ? scratchItems.map((item) => `- ${timeOnly(item.createdAt)}　${item.text}`).join("\n")
-      : "なし";
+  const scratchHistory = scratchItems.map((item) => `- ${timeOnly(item.createdAt)}　${item.text}`).join("\n");
+  const sleepHours = hoursValue(entry.sleepHours);
+  const napHours = hoursValue(entry.napHours) ?? 0;
+  const totalSleepHours = sleepHours === null ? null : sleepHours + napHours;
 
   return `## ${formatDateJa(entry.date)}（${entry.weekday}）
 
-### 日記本文
+### 日次振り返り
 
-${valueOrNone(entry.body)}
+${valueOrBlank(entry.body)}
+
+### 日記
+
+${valueOrBlank(entry.scratch)}
 
 ### らくがきメモ履歴
 
 ${scratchHistory}
 
-### らくがき帳・自由メモ
-
-${valueOrNone(entry.scratch)}
-
 ### タグ
 
 ${tags}
 
-### 気分・体力
+### 気分・体力・睡眠
 
-- 気分：${valueOrNone(entry.mood)}
-- 体力：${valueOrNone(entry.energy)}
-- 起床時間：${valueOrNone(entry.wakeUpTime)}
-- 睡眠時間：${sleepHoursLabel(entry.sleepHours)}`;
+- 気分：${valueOrBlank(entry.mood)}
+- 体力：${valueOrBlank(entry.energy)}
+- 起床時間：${valueOrBlank(entry.wakeUpTime)}
+- 睡眠時間：${hoursLabel(entry.sleepHours)}
+- 仮眠時間：${hoursLabel(entry.napHours)}
+- 睡眠合計：${totalSleepHours === null ? "" : `${totalSleepHours.toFixed(1)}時間`}`;
 }
 
 export function entriesToMarkdown(entries: DiaryEntry[]): string {
   return `# Web日記エクスポート
-
 出力日：${nowIsoLocal().slice(0, 10)}
 件数：${entries.length}件
 

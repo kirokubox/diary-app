@@ -15,6 +15,7 @@ export interface DiaryEntry {
   mood: Mood;
   wakeUpTime: string;
   sleepHours: number | null;
+  napHours: number | null;
   tags: string[];
   body: string;
   scratch: string;

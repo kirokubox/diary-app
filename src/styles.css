@@ -404,7 +404,7 @@ main {
 
 .rhythm-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 10px 12px;
 }
 
@@ -535,6 +535,100 @@ main {
 .month-list {
   display: grid;
   gap: 12px;
+}
+
+.sleep-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid #d5e0e3;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(36, 50, 58, 0.04);
+}
+
+.sleep-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sleep-card-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sleep-card-head p,
+.sleep-card-head span {
+  color: #5f7078;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.sleep-card-head span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #edf5f7;
+}
+
+.sleep-chart-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.sleep-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 230px;
+}
+
+.sleep-chart-bg {
+  fill: #f7fbfc;
+}
+
+.sleep-grid-line {
+  stroke: #dbe6e9;
+  stroke-width: 1;
+}
+
+.sleep-axis {
+  fill: #647982;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sleep-axis.right {
+  text-anchor: end;
+}
+
+.sleep-axis.date {
+  text-anchor: middle;
+}
+
+.sleep-bar-main {
+  fill: #7aa6b3;
+}
+
+.sleep-bar-nap {
+  fill: #b8c96a;
+}
+
+.wake-line {
+  fill: none;
+  stroke: #c56f5d;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.wake-dot {
+  fill: #c56f5d;
+  stroke: #ffffff;
+  stroke-width: 2;
 }
 
 .month-group {

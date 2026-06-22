@@ -9,13 +9,23 @@ const SETTINGS_KEY = "app";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
+function parseStoredHours(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "未入力") return null;
+  const numeric = Number(trimmed.replace("時間", ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function normalizeEntry(entry: DiaryEntry): DiaryEntry {
   return {
     ...entry,
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: Array.isArray(entry.scratchItems) ? entry.scratchItems : [],
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
-    sleepHours: typeof entry.sleepHours === "number" ? entry.sleepHours : null,
+    sleepHours: parseStoredHours(entry.sleepHours),
+    napHours: parseStoredHours(entry.napHours),
   };
 }
 

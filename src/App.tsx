@@ -33,8 +33,19 @@ const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   return `${hour}:${minute}`;
 });
 const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
+const NAP_HOUR_OPTIONS = Array.from({ length: 13 }, (_, index) => index * 0.5);
 const WAKE_UP_TIME_SELECT_OPTIONS = WAKE_UP_TIME_OPTIONS.flatMap((time) => (time === "05:30" ? [time, ""] : [time]));
 const SLEEP_HOUR_SELECT_OPTIONS = SLEEP_HOUR_OPTIONS.flatMap((hours) => (hours === 4.5 ? [hours, null] : [hours]));
+const NAP_HOUR_SELECT_OPTIONS: Array<number | null> = [null, ...NAP_HOUR_OPTIONS];
+
+type SleepChartPoint = {
+  date: string;
+  label: string;
+  sleepHours: number | null;
+  napHours: number;
+  totalHours: number | null;
+  wakeTime: number | null;
+};
 
 type ImportIssue = {
   index?: number;
@@ -115,6 +126,7 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
     mood: "",
     wakeUpTime: "",
     sleepHours: null,
+    napHours: null,
     tags: DEFAULT_TAGS,
     body: settings.template,
     scratch: "",
@@ -146,10 +158,43 @@ function sleepHoursMeta(value: number | null | undefined): string {
   return typeof value === "number" ? `${value.toFixed(1)}h` : "";
 }
 
+function parseHours(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "未入力") return null;
+  const numeric = Number(trimmed.replace("時間", ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parseWakeTime(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  return Number(match[1]) + Number(match[2]) / 60;
+}
+
+function formatWakeTick(value: number): string {
+  const wholeHours = Math.floor(value);
+  const minutes = Math.round((value - wholeHours) * 60);
+  return `${String(wholeHours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatShortDate(date: string): string {
+  const [, month, day] = date.split("-");
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function formatHours(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value.toFixed(1)}時間` : "未入力";
+}
+
 function rhythmMeta(entry: DiaryEntry): string[] {
+  const napMeta = sleepHoursMeta(entry.napHours);
   return [
     entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
     sleepHoursMeta(entry.sleepHours) ? `睡眠 ${sleepHoursMeta(entry.sleepHours)}` : "",
+    napMeta ? `仮眠 ${napMeta}` : "",
   ].filter(Boolean);
 }
 
@@ -301,7 +346,8 @@ function normalizeImportedEntry(entry: DiaryEntry): DiaryEntry {
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: normalizeScratchItems(entry.scratchItems),
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
-    sleepHours: typeof entry.sleepHours === "number" ? entry.sleepHours : null,
+    sleepHours: parseHours(entry.sleepHours),
+    napHours: parseHours(entry.napHours),
   };
 }
 
@@ -357,10 +403,31 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
     errors.push({ index, date: dateForIssue, message: "wakeUpTime は30分刻みの HH:mm 形式にしてください。" });
   }
 
+  const rawSleepHours = (item as { sleepHours?: unknown }).sleepHours;
+  const importedSleepHours = parseHours(rawSleepHours);
+  if ("sleepHours" in item && (rawSleepHours === "" || rawSleepHours === undefined)) {
+    item.sleepHours = null;
+  } else if ("sleepHours" in item && importedSleepHours !== null) {
+    item.sleepHours = importedSleepHours;
+  }
+
   if ("sleepHours" in item && item.sleepHours !== null && typeof item.sleepHours !== "number") {
     errors.push({ index, date: dateForIssue, message: "sleepHours は数値または null にしてください。" });
   } else if (typeof item.sleepHours === "number" && !SLEEP_HOUR_OPTIONS.includes(item.sleepHours)) {
     errors.push({ index, date: dateForIssue, message: "sleepHours は0.5〜12.0の0.5時間刻みにしてください。" });
+  }
+
+  const rawNapHours = (item as { napHours?: unknown }).napHours;
+  const importedNapHours = parseHours(rawNapHours);
+  if ("napHours" in item && (rawNapHours === "" || rawNapHours === undefined)) {
+    item.napHours = null;
+  } else if ("napHours" in item && importedNapHours !== null) {
+    item.napHours = importedNapHours;
+  }
+  if ("napHours" in item && rawNapHours !== null && rawNapHours !== "" && rawNapHours !== undefined && importedNapHours === null) {
+    errors.push({ index, date: dateForIssue, message: "napHours は数値、時間つき文字列、または null にしてください。" });
+  } else if (typeof importedNapHours === "number" && !NAP_HOUR_OPTIONS.includes(importedNapHours)) {
+    errors.push({ index, date: dateForIssue, message: "napHours は0〜6.0の0.5時間刻みにしてください。" });
   }
 
   if (!Array.isArray(item.tags) || !item.tags.every((tag) => typeof tag === "string")) {
@@ -413,6 +480,180 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
     errors,
     warnings,
   };
+}
+
+function buildSleepChartPoints(entries: DiaryEntry[]): SleepChartPoint[] {
+  return [...entries]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-14)
+    .map((entry) => {
+      const sleepHours = parseHours(entry.sleepHours);
+      const napHours = parseHours(entry.napHours) ?? 0;
+      return {
+        date: entry.date,
+        label: formatShortDate(entry.date),
+        sleepHours,
+        napHours,
+        totalHours: sleepHours === null ? null : sleepHours + napHours,
+        wakeTime: parseWakeTime(entry.wakeUpTime),
+      };
+    });
+}
+
+function recentSleepAverage(entries: DiaryEntry[]): string {
+  const targets = [...entries]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-7)
+    .map((entry) => {
+      const sleepHours = parseHours(entry.sleepHours);
+      if (sleepHours === null) return null;
+      return sleepHours + (parseHours(entry.napHours) ?? 0);
+    })
+    .filter((value): value is number => typeof value === "number");
+  if (targets.length === 0) return "-";
+  const average = targets.reduce((sum, value) => sum + value, 0) / targets.length;
+  return `${average.toFixed(1)}h`;
+}
+
+function RecentSleepCard({ entries }: { entries: DiaryEntry[] }) {
+  const chartPoints = useMemo(() => buildSleepChartPoints(entries), [entries]);
+  const average = useMemo(() => recentSleepAverage(entries), [entries]);
+  const drawablePoints = chartPoints.filter((point) => point.totalHours !== null || point.wakeTime !== null);
+  const hasSleep = chartPoints.some((point) => point.totalHours !== null);
+  const hasWake = chartPoints.some((point) => point.wakeTime !== null);
+
+  if (!hasSleep && !hasWake) {
+    return (
+      <section className="sleep-card">
+        <div className="sleep-card-head">
+          <div>
+            <h2>最近の眠り</h2>
+            <p>棒：睡眠　線：起床</p>
+          </div>
+          <span>直近7日平均：-</span>
+        </div>
+        <p className="empty">最近の眠りを表示するには、起床時間と睡眠時間を記録してください。</p>
+      </section>
+    );
+  }
+
+  const width = 640;
+  const height = 220;
+  const padding = { top: 18, right: 44, bottom: 36, left: 48 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxSleep = Math.max(4, Math.ceil(Math.max(...chartPoints.map((point) => point.totalHours ?? 0))));
+  const wakeValues = chartPoints.map((point) => point.wakeTime).filter((value): value is number => value !== null);
+  const rawWakeMin = wakeValues.length > 0 ? Math.min(...wakeValues) : 4;
+  const rawWakeMax = wakeValues.length > 0 ? Math.max(...wakeValues) : 8;
+  const wakeMin = Math.max(0, Math.floor(rawWakeMin - 0.5));
+  const wakeMax = Math.min(24, Math.ceil(rawWakeMax + 0.5));
+  const wakeRange = Math.max(1, wakeMax - wakeMin);
+  const xStep = chartPoints.length > 1 ? plotWidth / (chartPoints.length - 1) : plotWidth;
+  const barWidth = Math.min(24, Math.max(10, plotWidth / Math.max(chartPoints.length, 1) - 12));
+  const sleepTicks = [0, Math.ceil(maxSleep / 2), maxSleep];
+  const wakeTicks = [wakeMin, wakeMin + wakeRange / 2, wakeMax];
+  const linePoints = chartPoints
+    .map((point, index) => {
+      if (point.wakeTime === null) return null;
+      const x = padding.left + index * xStep;
+      const y = padding.top + ((wakeMax - point.wakeTime) / wakeRange) * plotHeight;
+      return `${x},${y}`;
+    })
+    .filter((value): value is string => value !== null)
+    .join(" ");
+
+  function xOf(index: number) {
+    return padding.left + index * xStep;
+  }
+
+  function sleepY(hours: number) {
+    return padding.top + plotHeight - (hours / maxSleep) * plotHeight;
+  }
+
+  return (
+    <section className="sleep-card">
+      <div className="sleep-card-head">
+        <div>
+          <h2>最近の眠り</h2>
+          <p>棒：睡眠　線：起床</p>
+        </div>
+        <span>直近7日平均：{average}</span>
+      </div>
+      <div className="sleep-chart-wrap" aria-label="直近14日分の睡眠時間、仮眠時間、起床時間グラフ">
+        <svg className="sleep-chart" viewBox={`0 0 ${width} ${height}`} role="img">
+          <rect className="sleep-chart-bg" x="0" y="0" width={width} height={height} rx="8" />
+          {sleepTicks.map((tick) => {
+            const y = sleepY(tick);
+            return (
+              <g key={`sleep-${tick}`}>
+                <line className="sleep-grid-line" x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
+                <text className="sleep-axis right" x={width - 8} y={y + 4}>
+                  {tick}h
+                </text>
+              </g>
+            );
+          })}
+          {wakeTicks.map((tick) => {
+            const y = padding.top + ((wakeMax - tick) / wakeRange) * plotHeight;
+            return (
+              <text className="sleep-axis left" key={`wake-${tick}`} x={8} y={y + 4}>
+                {formatWakeTick(tick)}
+              </text>
+            );
+          })}
+          {chartPoints.map((point, index) => {
+            const x = xOf(index);
+            const sleep = point.sleepHours ?? 0;
+            const nap = point.totalHours === null ? 0 : point.napHours;
+            const sleepHeight = plotHeight - (sleepY(sleep) - padding.top);
+            const napHeight = (nap / maxSleep) * plotHeight;
+            const baseY = padding.top + plotHeight;
+            const showLabel = chartPoints.length <= 8 || index % 2 === 0 || index === chartPoints.length - 1;
+            return (
+              <g key={point.date}>
+                {point.totalHours !== null && (
+                  <>
+                    <rect
+                      className="sleep-bar-main"
+                      x={x - barWidth / 2}
+                      y={baseY - sleepHeight}
+                      width={barWidth}
+                      height={sleepHeight}
+                      rx="4"
+                    />
+                    {nap > 0 && (
+                      <rect
+                        className="sleep-bar-nap"
+                        x={x - barWidth / 2}
+                        y={baseY - sleepHeight - napHeight}
+                        width={barWidth}
+                        height={napHeight}
+                        rx="4"
+                      />
+                    )}
+                  </>
+                )}
+                {showLabel && (
+                  <text className="sleep-axis date" x={x} y={height - 10}>
+                    {point.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          {linePoints && <polyline className="wake-line" points={linePoints} />}
+          {chartPoints.map((point, index) => {
+            if (point.wakeTime === null) return null;
+            const x = xOf(index);
+            const y = padding.top + ((wakeMax - point.wakeTime) / wakeRange) * plotHeight;
+            return <circle className="wake-dot" cx={x} cy={y} key={`wake-dot-${point.date}`} r="4" />;
+          })}
+        </svg>
+      </div>
+      {drawablePoints.length < 2 && <p className="subtle">記録が増えると、最近の眠りの流れが見えやすくなります。</p>}
+    </section>
+  );
 }
 
 function EntryCard({ entry, onOpen }: { entry: DiaryEntry; onOpen: (date: string) => void | Promise<void> }) {
@@ -738,6 +979,21 @@ function Editor({
                   ))}
                 </select>
               </label>
+              <label>
+                仮眠時間
+                <select
+                  value={entry.napHours ?? ""}
+                  onChange={(event) =>
+                    onChange({ ...entry, napHours: event.target.value ? Number(event.target.value) : null })
+                  }
+                >
+                  {NAP_HOUR_SELECT_OPTIONS.map((hours) => (
+                    <option key={hours ?? "none"} value={hours ?? ""}>
+                      {typeof hours === "number" ? `${hours.toFixed(1)}時間` : "未入力"}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <label>
               振り返り
@@ -988,7 +1244,8 @@ export default function App() {
       scratch: typeof target.scratch === "string" ? target.scratch : "",
       scratchItems: normalizeScratchItems(target.scratchItems),
       wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
-      sleepHours: typeof target.sleepHours === "number" ? target.sleepHours : null,
+      sleepHours: parseHours(target.sleepHours),
+      napHours: parseHours(target.napHours),
     };
     await saveEntry(saved);
     setEntry(saved);
@@ -1253,6 +1510,7 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
+            <RecentSleepCard entries={entries} />
             <div className="month-list">
               {entries.length === 0 ? (
                 <p className="empty">まだ保存された日記はありません。</p>

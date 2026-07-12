@@ -740,7 +740,7 @@ function Editor({
   saveState,
   onChange,
   onManualSave,
-  onCopyMarkdown,
+  onExportMarkdown,
   onMoveDate,
   onDelete,
   onAddTagOption,
@@ -753,7 +753,7 @@ function Editor({
   saveState: SaveState;
   onChange: (entry: DiaryEntry) => void;
   onManualSave: () => void;
-  onCopyMarkdown: () => void;
+  onExportMarkdown: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
   onAddTagOption: (tag: string) => void;
@@ -1147,8 +1147,8 @@ function Editor({
         <button className="primary" onClick={onManualSave} type="button">
           保存
         </button>
-        <button onClick={onCopyMarkdown} type="button">
-          Markdownコピー
+        <button onClick={onExportMarkdown} type="button">
+          Markdownエクスポート
         </button>
         <button className="danger" onClick={onDelete} type="button">
           削除
@@ -1280,11 +1280,11 @@ export default function App() {
     await openDate(date, true);
   }
 
-  async function copyMarkdown() {
+  async function exportEntryMarkdown() {
     if (!entry) return;
     await persistEntry(entry);
-    await navigator.clipboard.writeText(entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }));
-    notify("Markdownをコピーしました");
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }), "text/markdown");
+    notify("Markdownをエクスポートしました");
   }
 
   async function removeCurrentEntry() {
@@ -1491,7 +1491,7 @@ export default function App() {
             saveState={saveState}
             onChange={updateEntry}
             onManualSave={() => void persistEntry(entry)}
-            onCopyMarkdown={() => void copyMarkdown()}
+            onExportMarkdown={() => void exportEntryMarkdown()}
             onMoveDate={openDate}
             onDelete={() => void removeCurrentEntry()}
             onAddTagOption={(tag) => void addTagOption(tag)}

@@ -20,7 +20,7 @@ import {
 } from "./dateUtils";
 import { downloadText } from "./fileUtils";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
-import { buildEntrySummary, buildSearchSnippet, estimateBedTime } from "./summary";
+import { buildEntrySummary, buildSearchSnippet, classifyBodyLines, estimateBedTime } from "./summary";
 import type { SearchSnippet } from "./summary";
 import {
   clearEntries,
@@ -752,6 +752,115 @@ function MemoryCard({
   );
 }
 
+function ReadingView({
+  entry,
+  exists,
+  onMoveDate,
+  onStartEditing,
+  onExportMarkdown,
+}: {
+  entry: DiaryEntry;
+  exists: boolean;
+  onMoveDate: (date: string) => void | Promise<void>;
+  onStartEditing: () => void;
+  onExportMarkdown: () => void;
+}) {
+  const rhythmItems = rhythmMeta(entry);
+  const scratchText = entry.scratch.trim();
+  const sortedScratchItems = [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return (
+    <div className="screen reading-screen">
+      <header className="screen-header">
+        <div>
+          <p className="eyebrow">過去の日記をふりかえる</p>
+          <h1>季節日記</h1>
+          <p className="subtle">{entry.date}（{entry.weekday}）</p>
+        </div>
+      </header>
+
+      <div className="date-controls">
+        <button onClick={() => onMoveDate(addDays(entry.date, -1))} type="button">
+          前日
+        </button>
+        <input
+          aria-label="日付"
+          type="date"
+          value={entry.date}
+          onChange={(event) => onMoveDate(event.target.value)}
+        />
+        <button onClick={() => onMoveDate(addDays(entry.date, 1))} type="button">
+          翌日
+        </button>
+      </div>
+
+      {!exists ? (
+        <div className="reading-empty-state">
+          <p className="empty">この日の記録はありません。</p>
+          <button className="primary" type="button" onClick={onStartEditing}>
+            この日を書く
+          </button>
+        </div>
+      ) : (
+        <>
+          {rhythmItems.length > 0 && <p className="reading-meta">{rhythmItems.join("　")}</p>}
+
+          <section className="reading-section">
+            <h2>振り返り</h2>
+            <div className="reading-body">
+              {classifyBodyLines(entry.body).map((line, index) => {
+                if (line.type === "blank") return <div className="reading-blank" key={index} />;
+                if (line.type === "heading") {
+                  return (
+                    <p className="reading-heading" key={index}>
+                      {line.text}
+                    </p>
+                  );
+                }
+                return (
+                  <p className={line.type === "emptyTemplate" ? "reading-line empty-template" : "reading-line"} key={index}>
+                    {line.text}
+                  </p>
+                );
+              })}
+            </div>
+          </section>
+
+          {scratchText && (
+            <section className="reading-section">
+              <h2>日記</h2>
+              <p className="reading-text">{entry.scratch}</p>
+            </section>
+          )}
+
+          {sortedScratchItems.length > 0 && (
+            <section className="reading-section">
+              <h2>らくがきメモ履歴</h2>
+              <ul className="reading-memo-list">
+                {sortedScratchItems.map((item) => (
+                  <li key={item.id}>
+                    <time>{timeOnly(item.createdAt)}</time>
+                    <p>{item.text}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <div className="action-row">
+            <button className="primary" onClick={onStartEditing} type="button">
+              編集する
+            </button>
+            <button onClick={onExportMarkdown} type="button">
+              Markdownエクスポート
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Editor({
   entry,
   saveState,
@@ -1168,6 +1277,7 @@ export default function App() {
   } | null>(null);
   const [initialBodyExpanded, setInitialBodyExpanded] = useState(false);
   const [bodyOpenVersion, setBodyOpenVersion] = useState(0);
+  const [entryViewMode, setEntryViewMode] = useState<"read" | "edit">("edit");
 
   async function refreshEntries() {
     setEntries(await getAllEntries());
@@ -1239,24 +1349,45 @@ export default function App() {
     setSaveState("dirty");
   }
 
-  async function openDate(date: string, expandBody = false) {
+  async function openDate(date: string) {
     if (entry && saveState === "dirty") {
       await persistEntry(entry);
     }
-    setInitialBodyExpanded(expandBody);
+    setEntryViewMode("edit");
+    setInitialBodyExpanded(false);
     setBodyOpenVersion((version) => version + 1);
     setActiveDate(date);
     setTab("today");
   }
 
+  // 一覧・検索・グラフ・メモリーカードからの遷移は閲覧モードで開く
   async function openDateForReading(date: string) {
-    await openDate(date, true);
+    if (entry && saveState === "dirty") {
+      await persistEntry(entry);
+    }
+    setEntryViewMode("read");
+    setActiveDate(date);
+    setTab("today");
+  }
+
+  // 閲覧モードから同じ日付の入力モードへ。振り返りを展開した状態で開く
+  function startEditing() {
+    setInitialBodyExpanded(true);
+    setBodyOpenVersion((version) => version + 1);
+    setEntryViewMode("edit");
   }
 
   async function exportEntryMarkdown() {
     if (!entry) return;
     await persistEntry(entry);
     downloadText(`diary-${entry.date}.md`, entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }), "text/markdown");
+    notify("Markdownをエクスポートしました");
+  }
+
+  // 閲覧モード用。保存を伴わない(未作成日にテンプレだけの日記を作らない)
+  function exportEntryMarkdownWithoutSave() {
+    if (!entry) return;
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry), "text/markdown");
     notify("Markdownをエクスポートしました");
   }
 
@@ -1288,6 +1419,9 @@ export default function App() {
 
   // entries は日付降順なので先頭7件が直近
   const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
+
+  // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
+  const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
 
   const memoryCards = useMemo(() => {
     const todayKey = getLifeDateKey(new Date(), settings.dayBoundaryTime);
@@ -1455,18 +1589,28 @@ export default function App() {
     <div className="app-shell">
       <main>
         {tab === "today" && entry && (
-          <Editor
-            entry={entry}
-            saveState={saveState}
-            onChange={updateEntry}
-            onManualSave={() => void persistEntry(entry)}
-            onExportMarkdown={() => void exportEntryMarkdown()}
-            onMoveDate={openDate}
-            onDelete={() => void removeCurrentEntry()}
-            onNotify={notify}
-            initialBodyExpanded={initialBodyExpanded}
-            bodyOpenVersion={bodyOpenVersion}
-          />
+          entryViewMode === "read" ? (
+            <ReadingView
+              entry={entry}
+              exists={entryExists}
+              onMoveDate={openDateForReading}
+              onStartEditing={startEditing}
+              onExportMarkdown={exportEntryMarkdownWithoutSave}
+            />
+          ) : (
+            <Editor
+              entry={entry}
+              saveState={saveState}
+              onChange={updateEntry}
+              onManualSave={() => void persistEntry(entry)}
+              onExportMarkdown={() => void exportEntryMarkdown()}
+              onMoveDate={openDate}
+              onDelete={() => void removeCurrentEntry()}
+              onNotify={notify}
+              initialBodyExpanded={initialBodyExpanded}
+              bodyOpenVersion={bodyOpenVersion}
+            />
+          )
         )}
 
         {tab === "list" && (
@@ -1755,7 +1899,14 @@ export default function App() {
           ["search", "検索"],
           ["settings", "設定"],
         ].map(([key, label]) => (
-          <button className={tab === key ? "active" : ""} key={key} onClick={() => setTab(key as TabKey)}>
+          <button
+            className={tab === key ? "active" : ""}
+            key={key}
+            onClick={() => {
+              if (key === "today") setEntryViewMode("edit");
+              setTab(key as TabKey);
+            }}
+          >
             {label}
           </button>
         ))}

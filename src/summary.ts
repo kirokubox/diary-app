@@ -122,6 +122,22 @@ export function buildEntrySummary(entry: DiaryEntry): string {
   return fallbackSummary(entry.body);
 }
 
+export type BodyLine = {
+  type: "heading" | "text" | "emptyTemplate" | "blank";
+  text: string;
+};
+
+// 閲覧モードの本文表示用。fallbackSummary と同じ基準で行を分類する
+export function classifyBodyLines(body: string): BodyLine[] {
+  return body.split("\n").map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return { type: "blank" as const, text: "" };
+    if (trimmed.startsWith("■")) return { type: "heading" as const, text: line };
+    if (trimmed.endsWith("：")) return { type: "emptyTemplate" as const, text: line };
+    return { type: "text" as const, text: line };
+  });
+}
+
 export type SearchSnippet = {
   before: string;
   match: string;

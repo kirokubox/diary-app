@@ -20,7 +20,6 @@ function hoursLabel(value: unknown): string {
 }
 
 export function entryToMarkdown(entry: DiaryEntry): string {
-  const tags = entry.tags.length > 0 ? entry.tags.map((tag) => `#${tag}`).join(" ") : "";
   const scratchItems = [...(entry.scratchItems ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const scratchHistory = scratchItems.map((item) => `- ${timeOnly(item.createdAt)}　${item.text}`).join("\n");
   const sleepHours = hoursValue(entry.sleepHours);
@@ -41,14 +40,8 @@ ${valueOrBlank(entry.scratch)}
 
 ${scratchHistory}
 
-### タグ
+### 睡眠
 
-${tags}
-
-### 気分・体力・睡眠
-
-- 気分：${valueOrBlank(entry.mood)}
-- 体力：${valueOrBlank(entry.energy)}
 - 起床時間：${valueOrBlank(entry.wakeUpTime)}
 - 睡眠時間：${hoursLabel(entry.sleepHours)}
 - 仮眠時間：${hoursLabel(entry.napHours)}

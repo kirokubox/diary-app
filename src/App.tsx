@@ -3,14 +3,25 @@ import {
   APP_VERSION,
   DAY_BOUNDARY_OPTIONS,
   DEFAULT_SETTINGS,
-  DEFAULT_TAGS,
   DEFAULT_TEMPLATE,
   ENERGY_OPTIONS,
   MOOD_OPTIONS,
 } from "./constants";
-import { addDays, nowIsoLocal, timeOnly, toDateInputValue, weekdayOf } from "./dateUtils";
+import {
+  addDays,
+  monthsAgoExact,
+  nowIsoLocal,
+  pickDailyStable,
+  seasonOf,
+  timeOnly,
+  toDateInputValue,
+  weekdayOf,
+  yearsAgoExact,
+} from "./dateUtils";
 import { downloadText } from "./fileUtils";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
+import { buildEntrySummary, buildSearchSnippet, estimateBedTime } from "./summary";
+import type { SearchSnippet } from "./summary";
 import {
   clearEntries,
   clearSettings,
@@ -26,7 +37,6 @@ import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, Tab
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DIARY_TASK_CANDIDATES_KEY = "yuki-app-bridge-diary-task-candidates-v1";
 const TASK_DIARY_COMPLETIONS_KEY = "yuki-app-bridge-task-diary-completions-v1";
-const CURRENT_MONTH_KEY = toDateInputValue().slice(0, 7);
 const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   const hour = String(Math.floor(index / 2)).padStart(2, "0");
   const minute = index % 2 === 0 ? "00" : "30";
@@ -127,7 +137,7 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
     wakeUpTime: "",
     sleepHours: null,
     napHours: null,
-    tags: DEFAULT_TAGS,
+    tags: [],
     body: settings.template,
     scratch: "",
     scratchItems: [],
@@ -138,20 +148,6 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
 
 function cleanTag(tag: string): string {
   return tag.trim().replace(/^#+/, "");
-}
-
-function preview(body: string): string {
-  const text = body.replace(/\s+/g, " ").trim();
-  return text.length > 110 ? `${text.slice(0, 110)}...` : text || "本文はまだありません";
-}
-
-function monthKeyOf(date: string): string {
-  return date.slice(0, 7);
-}
-
-function monthLabel(monthKey: string): string {
-  const [year, month] = monthKey.split("-");
-  return `${year}年${Number(month)}月`;
 }
 
 function sleepHoursMeta(value: number | null | undefined): string {
@@ -500,6 +496,15 @@ function buildSleepChartPoints(entries: DiaryEntry[]): SleepChartPoint[] {
     });
 }
 
+function formatChartTime(value: number | null): string {
+  return value === null ? "-" : formatWakeTick(value);
+}
+
+function sleepDetailDateLabel(date: string): string {
+  const [, month, day] = date.split("-");
+  return `${Number(month)}月${Number(day)}日（${weekdayOf(date)}）`;
+}
+
 function recentSleepAverage(entries: DiaryEntry[]): string {
   const targets = [...entries]
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -515,9 +520,18 @@ function recentSleepAverage(entries: DiaryEntry[]): string {
   return `${average.toFixed(1)}h`;
 }
 
-function RecentSleepCard({ entries }: { entries: DiaryEntry[] }) {
+function RecentSleepCard({
+  entries,
+  onOpenDate,
+}: {
+  entries: DiaryEntry[];
+  onOpenDate: (date: string) => void | Promise<void>;
+}) {
   const chartPoints = useMemo(() => buildSleepChartPoints(entries), [entries]);
   const average = useMemo(() => recentSleepAverage(entries), [entries]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // 14件の窓から外れた日付は find で見つからず、詳細も自然に閉じる
+  const selectedPoint = chartPoints.find((point) => point.date === selectedDate) ?? null;
   const drawablePoints = chartPoints.filter((point) => point.totalHours !== null || point.wakeTime !== null);
   const hasSleep = chartPoints.some((point) => point.totalHours !== null);
   const hasWake = chartPoints.some((point) => point.wakeTime !== null);
@@ -612,6 +626,16 @@ function RecentSleepCard({ entries }: { entries: DiaryEntry[] }) {
             const showLabel = chartPoints.length <= 8 || index % 2 === 0 || index === chartPoints.length - 1;
             return (
               <g key={point.date}>
+                {selectedDate === point.date && (
+                  <rect
+                    className="sleep-col-highlight"
+                    x={x - xStep / 2}
+                    y={padding.top}
+                    width={xStep}
+                    height={plotHeight}
+                    rx="4"
+                  />
+                )}
                 {point.totalHours !== null && (
                   <>
                     <rect
@@ -639,6 +663,14 @@ function RecentSleepCard({ entries }: { entries: DiaryEntry[] }) {
                     {point.label}
                   </text>
                 )}
+                <rect
+                  className="sleep-hit"
+                  x={x - xStep / 2}
+                  y={padding.top}
+                  width={xStep}
+                  height={plotHeight + padding.bottom - 6}
+                  onClick={() => setSelectedDate(selectedDate === point.date ? null : point.date)}
+                />
               </g>
             );
           })}
@@ -651,112 +683,94 @@ function RecentSleepCard({ entries }: { entries: DiaryEntry[] }) {
           })}
         </svg>
       </div>
+      {selectedPoint && (
+        <div className="sleep-detail">
+          <p className="sleep-detail-date">{sleepDetailDateLabel(selectedPoint.date)}</p>
+          <p className="sleep-detail-meta">
+            推定就寝 {formatChartTime(estimateBedTime(selectedPoint.wakeTime, selectedPoint.sleepHours))}　起床{" "}
+            {formatChartTime(selectedPoint.wakeTime)}　睡眠 {sleepHoursMeta(selectedPoint.sleepHours) || "-"}　仮眠{" "}
+            {selectedPoint.napHours.toFixed(1)}h
+          </p>
+          <button className="sleep-detail-open" type="button" onClick={() => onOpenDate(selectedPoint.date)}>
+            この日の日記を見る
+          </button>
+        </div>
+      )}
       {drawablePoints.length < 2 && <p className="subtle">記録が増えると、最近の眠りの流れが見えやすくなります。</p>}
     </section>
   );
 }
 
-function EntryCard({ entry, onOpen }: { entry: DiaryEntry; onOpen: (date: string) => void | Promise<void> }) {
+function CompactEntryCard({
+  entry,
+  snippet,
+  onOpen,
+}: {
+  entry: DiaryEntry;
+  snippet?: SearchSnippet | null;
+  onOpen: (date: string) => void | Promise<void>;
+}) {
   const rhythmItems = rhythmMeta(entry);
+  const summary = snippet ? "" : buildEntrySummary(entry);
   return (
-    <button className="entry-card" onClick={() => onOpen(entry.date)}>
+    <button className="entry-card compact-card" onClick={() => onOpen(entry.date)} type="button">
       <span className="card-date">
         {entry.date}（{entry.weekday}）
       </span>
+      {snippet ? (
+        <span className="card-snippet">
+          {snippet.before}
+          <mark>{snippet.match}</mark>
+          {snippet.after}
+        </span>
+      ) : (
+        summary && <span className="card-summary">{summary}</span>
+      )}
       {rhythmItems.length > 0 && <span className="card-rhythm">{rhythmItems.join("　")}</span>}
-      <span className="card-meta">
-        <span>気分 {entry.mood || "未入力"}</span>
-        <span>体力 {entry.energy || "未入力"}</span>
-      </span>
-      <span className="tag-row">
-        {entry.tags.map((tag) => (
-          <span className="tag-pill" key={tag}>
-            #{tag}
-          </span>
-        ))}
-      </span>
-      <span className="card-preview">{preview(entry.body)}</span>
     </button>
   );
 }
 
-function TagPicker({
-  selected,
-  options,
-  onChange,
-  onAddOption,
+function MemoryCard({
+  label,
+  entry,
+  onOpen,
 }: {
-  selected: string[];
-  options: string[];
-  onChange: (tags: string[]) => void;
-  onAddOption: (tag: string) => void;
+  label: string;
+  entry: DiaryEntry | null;
+  onOpen: (date: string) => void | Promise<void>;
 }) {
-  const [newTag, setNewTag] = useState("");
-
-  function toggle(tag: string) {
-    onChange(selected.includes(tag) ? selected.filter((item) => item !== tag) : [...selected, tag]);
-  }
-
-  function addTag() {
-    const tag = cleanTag(newTag);
-    if (!tag) return;
-    onAddOption(tag);
-    if (!selected.includes(tag)) onChange([...selected, tag]);
-    setNewTag("");
-  }
-
   return (
-    <section className="field-group">
-      <label>タグ</label>
-      <div className="tag-grid">
-        {options.map((tag) => (
-          <button
-            className={selected.includes(tag) ? "tag-choice active" : "tag-choice"}
-            key={tag}
-            onClick={() => toggle(tag)}
-            type="button"
-          >
-            #{tag}
-          </button>
-        ))}
-      </div>
-      <div className="inline-add">
-        <input
-          value={newTag}
-          onChange={(event) => setNewTag(event.target.value)}
-          placeholder="新しいタグ"
-        />
-        <button type="button" onClick={addTag}>
-          追加
-        </button>
-      </div>
+    <section className="memory-card">
+      <p className="memory-label">{label}</p>
+      {entry ? (
+        <CompactEntryCard entry={entry} onOpen={onOpen} />
+      ) : (
+        <p className="memory-empty">記録なし</p>
+      )}
     </section>
   );
 }
 
 function Editor({
   entry,
-  settings,
   saveState,
   onChange,
   onManualSave,
   onExportMarkdown,
   onMoveDate,
   onDelete,
-  onAddTagOption,
   onNotify,
   initialBodyExpanded,
   bodyOpenVersion,
 }: {
   entry: DiaryEntry;
-  settings: AppSettings;
   saveState: SaveState;
   onChange: (entry: DiaryEntry) => void;
   onManualSave: () => void;
   onExportMarkdown: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
-  onAddTagOption: (tag: string) => void;
   onNotify: (message: string) => void;
   initialBodyExpanded: boolean;
   bodyOpenVersion: number;
@@ -934,26 +948,6 @@ function Editor({
         {bodyExpanded && (
           <div className="body-panel">
             <div className="rhythm-grid">
-              <label>
-                気分
-                <select value={entry.mood} onChange={(event) => onChange({ ...entry, mood: event.target.value as Mood })}>
-                  {MOOD_OPTIONS.map((mood) => (
-                    <option key={mood || "none"} value={mood}>
-                      {mood || "未入力"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                体力
-                <select value={entry.energy} onChange={(event) => onChange({ ...entry, energy: event.target.value as Energy })}>
-                  {ENERGY_OPTIONS.map((energy) => (
-                    <option key={energy || "none"} value={energy}>
-                      {energy || "未入力"}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label>
                 起床時間
                 <select value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })}>
@@ -1134,13 +1128,6 @@ function Editor({
         </div>
       </section>
 
-      <TagPicker
-        selected={entry.tags}
-        options={settings.tagOptions}
-        onChange={(tags) => onChange({ ...entry, tags })}
-        onAddOption={onAddTagOption}
-      />
-
       <div className="status-line">最終保存：{timeOnly(entry.updatedAt)}</div>
 
       <div className="action-row">
@@ -1170,11 +1157,8 @@ export default function App() {
   const hydrated = useRef(false);
 
   const [query, setQuery] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [moodFilter, setMoodFilter] = useState("");
-  const [energyFilter, setEnergyFilter] = useState("");
   const [templateDraft, setTemplateDraft] = useState(DEFAULT_TEMPLATE);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importResult, setImportResult] = useState<{
@@ -1182,11 +1166,8 @@ export default function App() {
     skipped: ImportSkip[];
     errors: number;
   } | null>(null);
-  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set([CURRENT_MONTH_KEY]));
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => new Set());
   const [initialBodyExpanded, setInitialBodyExpanded] = useState(false);
   const [bodyOpenVersion, setBodyOpenVersion] = useState(0);
-  const [searchDetailsExpanded, setSearchDetailsExpanded] = useState(false);
 
   async function refreshEntries() {
     setEntries(await getAllEntries());
@@ -1258,14 +1239,6 @@ export default function App() {
     setSaveState("dirty");
   }
 
-  async function addTagOption(tag: string) {
-    const clean = cleanTag(tag);
-    if (!clean || settings.tagOptions.includes(clean)) return;
-    const next = { ...settings, tagOptions: [...settings.tagOptions, clean] };
-    setSettings(next);
-    await saveSettings(next);
-  }
-
   async function openDate(date: string, expandBody = false) {
     if (entry && saveState === "dirty") {
       await persistEntry(entry);
@@ -1307,39 +1280,36 @@ export default function App() {
         item.scratch.toLowerCase().includes(normalizedQuery) ||
         item.scratchItems.some((scratchItem) => scratchItem.text.toLowerCase().includes(normalizedQuery)) ||
         item.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery));
-      const tagMatch = !tagFilter || item.tags.includes(tagFilter);
       const fromMatch = !fromDate || item.date >= fromDate;
       const toMatch = !toDate || item.date <= toDate;
-      const moodMatch = !moodFilter || item.mood === moodFilter;
-      const energyMatch = !energyFilter || item.energy === energyFilter;
-      return keywordMatch && tagMatch && fromMatch && toMatch && moodMatch && energyMatch;
+      return keywordMatch && fromMatch && toMatch;
     });
-  }, [entries, query, tagFilter, fromDate, toDate, moodFilter, energyFilter]);
+  }, [entries, query, fromDate, toDate]);
 
-  const groupedEntries = useMemo(() => {
-    const groups = new Map<string, DiaryEntry[]>();
-    entries.forEach((item) => {
-      const monthKey = monthKeyOf(item.date);
-      groups.set(monthKey, [...(groups.get(monthKey) ?? []), item]);
-    });
-    return Array.from(groups.entries()).map(([monthKey, monthEntries]) => ({ monthKey, entries: monthEntries }));
-  }, [entries]);
+  // entries は日付降順なので先頭7件が直近
+  const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
 
-  function toggleMonth(monthKey: string) {
-    setOpenMonths((current) => {
-      const next = new Set(current);
-      if (next.has(monthKey)) {
-        next.delete(monthKey);
-      } else {
-        next.add(monthKey);
-      }
-      return next;
-    });
-  }
+  const memoryCards = useMemo(() => {
+    const todayKey = getLifeDateKey(new Date(), settings.dayBoundaryTime);
+    const monthAgoDate = monthsAgoExact(todayKey, 1);
+    const yearAgoDate = yearsAgoExact(todayKey, 1);
+    const monthAgoEntry = (monthAgoDate && entries.find((item) => item.date === monthAgoDate)) || null;
+    const yearAgoEntry = (yearAgoDate && entries.find((item) => item.date === yearAgoDate)) || null;
 
-  function showAllMonthEntries(monthKey: string) {
-    setExpandedMonths((current) => new Set(current).add(monthKey));
-  }
+    const season = seasonOf(todayKey);
+    const visibleDates = new Set(entries.slice(0, 7).map((item) => item.date));
+    if (monthAgoEntry) visibleDates.add(monthAgoEntry.date);
+    if (yearAgoEntry) visibleDates.add(yearAgoEntry.date);
+    const seasonBase = entries.filter((item) => item.date < todayKey && seasonOf(item.date) === season);
+    const seasonCandidates = seasonBase.filter((item) => !visibleDates.has(item.date));
+    const seasonEntry = pickDailyStable(
+      seasonCandidates.length > 0 ? seasonCandidates : seasonBase,
+      (item) => item.date,
+      todayKey,
+    );
+
+    return { monthAgoDate, yearAgoDate, monthAgoEntry, yearAgoEntry, season, seasonEntry };
+  }, [entries, settings.dayBoundaryTime]);
 
   async function exportJson() {
     const payload = {
@@ -1487,14 +1457,12 @@ export default function App() {
         {tab === "today" && entry && (
           <Editor
             entry={entry}
-            settings={settings}
             saveState={saveState}
             onChange={updateEntry}
             onManualSave={() => void persistEntry(entry)}
             onExportMarkdown={() => void exportEntryMarkdown()}
             onMoveDate={openDate}
             onDelete={() => void removeCurrentEntry()}
-            onAddTagOption={(tag) => void addTagOption(tag)}
             onNotify={notify}
             initialBodyExpanded={initialBodyExpanded}
             bodyOpenVersion={bodyOpenVersion}
@@ -1510,45 +1478,36 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
-            <RecentSleepCard entries={entries} />
-            <div className="month-list">
-              {entries.length === 0 ? (
+            <RecentSleepCard entries={entries} onOpenDate={openDateForReading} />
+            <section className="list-section">
+              <h2 className="list-section-title">最近の日記</h2>
+              {recentEntries.length === 0 ? (
                 <p className="empty">まだ保存された日記はありません。</p>
               ) : (
-                groupedEntries.map(({ monthKey, entries: monthEntries }) => {
-                  const isOpen = openMonths.has(monthKey);
-                  const isCurrentMonth = monthKey === CURRENT_MONTH_KEY;
-                  const showAllEntries = !isCurrentMonth || expandedMonths.has(monthKey);
-                  const visibleEntries = showAllEntries ? monthEntries : monthEntries.slice(0, 3);
-                  const hiddenCount = monthEntries.length - visibleEntries.length;
-                  return (
-                    <section className="month-group" key={monthKey}>
-                      <button
-                        className="month-toggle"
-                        onClick={() => toggleMonth(monthKey)}
-                        type="button"
-                        aria-expanded={isOpen}
-                      >
-                        <span>{monthLabel(monthKey)}</span>
-                        <span>{isOpen ? "▼" : "▶"}</span>
-                      </button>
-                      {isOpen && (
-                        <div className="entry-list">
-                          {visibleEntries.map((item) => (
-                            <EntryCard entry={item} key={item.id} onOpen={openDateForReading} />
-                          ))}
-                          {isCurrentMonth && hiddenCount > 0 && (
-                            <button className="show-more-month" type="button" onClick={() => showAllMonthEntries(monthKey)}>
-                              今月の残りを表示
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </section>
-                  );
-                })
+                <div className="entry-list">
+                  {recentEntries.map((item) => (
+                    <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
+                  ))}
+                </div>
               )}
-            </div>
+            </section>
+            <MemoryCard
+              label={`1か月前${memoryCards.monthAgoDate ? `（${formatShortDate(memoryCards.monthAgoDate)}）` : ""}`}
+              entry={memoryCards.monthAgoEntry}
+              onOpen={openDateForReading}
+            />
+            <MemoryCard
+              label={`1年前${memoryCards.yearAgoDate ? `（${formatShortDate(memoryCards.yearAgoDate)}）` : ""}`}
+              entry={memoryCards.yearAgoEntry}
+              onOpen={openDateForReading}
+            />
+            {memoryCards.seasonEntry && (
+              <MemoryCard
+                label={`この季節の記録（${memoryCards.season}）`}
+                entry={memoryCards.seasonEntry}
+                onOpen={openDateForReading}
+              />
+            )}
           </div>
         )}
 
@@ -1566,58 +1525,25 @@ export default function App() {
                 キーワード
                 <input value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
-              <button className="details-toggle" type="button" onClick={() => setSearchDetailsExpanded((expanded) => !expanded)}>
-                {searchDetailsExpanded ? "詳しい条件を閉じる" : "詳しい条件を開く"}
-              </button>
-              {searchDetailsExpanded && (
-                <div className="search-detail-fields">
-                  <label>
-                    タグ
-                    <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-                      <option value="">すべて</option>
-                      {settings.tagOptions.map((tag) => (
-                        <option key={tag} value={tag}>
-                          #{tag}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    開始日
-                    <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-                  </label>
-                  <label>
-                    終了日
-                    <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-                  </label>
-                  <label>
-                    気分
-                    <select value={moodFilter} onChange={(event) => setMoodFilter(event.target.value)}>
-                      <option value="">すべて</option>
-                      {MOOD_OPTIONS.filter(Boolean).map((mood) => (
-                        <option key={mood} value={mood}>
-                          {mood}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    体力
-                    <select value={energyFilter} onChange={(event) => setEnergyFilter(event.target.value)}>
-                      <option value="">すべて</option>
-                      {ENERGY_OPTIONS.filter(Boolean).map((energy) => (
-                        <option key={energy} value={energy}>
-                          {energy}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
+              <div className="search-date-row">
+                <label>
+                  開始日
+                  <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+                </label>
+                <label>
+                  終了日
+                  <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+                </label>
+              </div>
             </section>
             <div className="entry-list">
               {searchResults.map((item) => (
-                <EntryCard entry={item} key={item.id} onOpen={openDateForReading} />
+                <CompactEntryCard
+                  entry={item}
+                  key={item.id}
+                  snippet={buildSearchSnippet(item, query)}
+                  onOpen={openDateForReading}
+                />
               ))}
             </div>
           </div>

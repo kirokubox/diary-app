@@ -35,8 +35,6 @@ import {
 import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, TabKey } from "./types";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const DIARY_TASK_CANDIDATES_KEY = "yuki-app-bridge-diary-task-candidates-v1";
-const TASK_DIARY_COMPLETIONS_KEY = "yuki-app-bridge-task-diary-completions-v1";
 const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   const hour = String(Math.floor(index / 2)).padStart(2, "0");
   const minute = index % 2 === 0 ? "00" : "30";
@@ -77,53 +75,6 @@ type ImportPreview = {
   errors: ImportIssue[];
   warnings: ImportIssue[];
   settingsFound: boolean;
-};
-
-type DiaryTaskCandidateStatus =
-  | "pending"
-  | "addedToday"
-  | "addedSoon"
-  | "addedSomeday"
-  | "completed"
-  | "dismissed";
-
-type DiaryTaskCandidate = {
-  id: string;
-  sourceApp: "season-diary";
-  type: "taskCandidate";
-  title: string;
-  sourceText: string;
-  sourceDate: string;
-  sourceMemoId?: string;
-  createdAt: string;
-  status: DiaryTaskCandidateStatus;
-  processedAt?: string;
-  targetTaskId?: string;
-};
-
-type CandidateDraft = {
-  memo: ScratchItem;
-  title: string;
-};
-
-type TaskDiaryCompletionBridgeStatus = "pending" | "imported" | "dismissed";
-
-type TaskDiaryCompletionBridgeItem = {
-  id: string;
-  sourceApp: "yuru-task";
-  type: "taskCompletion";
-  sourceTaskId: string;
-  title: string;
-  memo?: string;
-  completedAt: string;
-  completedLifeDate: string;
-  durationMinutes: number | null;
-  category?: string;
-  createdAt: string;
-  updatedAt: string;
-  status: TaskDiaryCompletionBridgeStatus;
-  processedAt?: string;
-  targetDiaryDate?: string;
 };
 
 function makeEntry(date: string, settings: AppSettings): DiaryEntry {
@@ -203,122 +154,12 @@ function makeScratchItem(text: string): ScratchItem {
   };
 }
 
-function makeBridgeCandidateId() {
-  return `diary-task-${nowIsoLocal()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function candidateTitleFromText(text: string) {
-  const compact = text.replace(/\s+/g, " ").trim();
-  return compact.length > 48 ? compact.slice(0, 48) : compact;
-}
-
-function isDiaryTaskCandidate(value: unknown): value is DiaryTaskCandidate {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<DiaryTaskCandidate>;
-  return (
-    typeof item.id === "string" &&
-    item.sourceApp === "season-diary" &&
-    item.type === "taskCandidate" &&
-    typeof item.title === "string" &&
-    typeof item.sourceText === "string" &&
-    typeof item.sourceDate === "string" &&
-    typeof item.createdAt === "string" &&
-    ["pending", "addedToday", "addedSoon", "addedSomeday", "completed", "dismissed"].includes(item.status ?? "")
-  );
-}
-
-function loadDiaryTaskCandidates(): DiaryTaskCandidate[] {
-  try {
-    const raw = localStorage.getItem(DIARY_TASK_CANDIDATES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isDiaryTaskCandidate) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveDiaryTaskCandidates(candidates: DiaryTaskCandidate[]) {
-  localStorage.setItem(DIARY_TASK_CANDIDATES_KEY, JSON.stringify(candidates));
-}
-
-function isTaskDiaryCompletionBridgeItem(value: unknown): value is TaskDiaryCompletionBridgeItem {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<TaskDiaryCompletionBridgeItem>;
-  return (
-    typeof item.id === "string" &&
-    item.sourceApp === "yuru-task" &&
-    item.type === "taskCompletion" &&
-    typeof item.sourceTaskId === "string" &&
-    typeof item.title === "string" &&
-    typeof item.completedAt === "string" &&
-    typeof item.completedLifeDate === "string" &&
-    (item.durationMinutes === null || typeof item.durationMinutes === "number") &&
-    typeof item.createdAt === "string" &&
-    typeof item.updatedAt === "string" &&
-    ["pending", "imported", "dismissed"].includes(item.status ?? "")
-  );
-}
-
-function loadTaskDiaryCompletionBridgeItems(): TaskDiaryCompletionBridgeItem[] {
-  try {
-    const raw = localStorage.getItem(TASK_DIARY_COMPLETIONS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isTaskDiaryCompletionBridgeItem) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTaskDiaryCompletionBridgeItems(items: TaskDiaryCompletionBridgeItem[]) {
-  localStorage.setItem(TASK_DIARY_COMPLETIONS_KEY, JSON.stringify(items));
-}
-
-function formatTaskDuration(minutes: number | null) {
-  if (minutes === null) return "";
-  if (minutes < 60) return `${minutes}分`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours}時間` : `${hours}時間${rest}分`;
-}
-
-function taskCompletionLine(item: TaskDiaryCompletionBridgeItem) {
-  const time = item.completedAt.slice(11, 16);
-  const duration = formatTaskDuration(item.durationMinutes);
-  return `${time}　${item.title}${duration ? `（${duration}）` : ""}`;
-}
-
-function appendTodayFact(body: string, line: string) {
-  const heading = "■1. 今日の事実";
-  const bullet = `・${line}`;
-  const headingIndex = body.indexOf(heading);
-  if (headingIndex < 0) return `${heading}\n${bullet}\n\n${body}`;
-  const afterHeadingIndex = headingIndex + heading.length;
-  const nextSectionIndex = body.slice(afterHeadingIndex).search(/\n■\d+\./);
-  if (nextSectionIndex < 0) {
-    const trimmed = body.replace(/\s*$/, "");
-    return `${trimmed}\n${bullet}`;
-  }
-  const insertIndex = afterHeadingIndex + nextSectionIndex;
-  const before = body.slice(0, insertIndex).replace(/\s*$/, "");
-  const after = body.slice(insertIndex);
-  return `${before}\n${bullet}\n${after}`;
-}
-
 function getLifeDateKey(date: Date, dayBoundaryTime: string): string {
   const [hoursText, minutesText] = dayBoundaryTime.split(":");
   const boundaryMinutes = Number(hoursText) * 60 + Number(minutesText);
   const currentMinutes = date.getHours() * 60 + date.getMinutes();
   const dateKey = toDateInputValue(date);
   return currentMinutes < boundaryMinutes ? addDays(dateKey, -1) : dateKey;
-}
-
-function activeCandidateForMemo(candidates: DiaryTaskCandidate[], entryDate: string, item: ScratchItem) {
-  return candidates.find((candidate) =>
-    candidate.status !== "dismissed" &&
-    (candidate.sourceMemoId === item.id || (candidate.sourceText === item.text && candidate.sourceDate === entryDate)),
-  );
 }
 
 function normalizeScratchItems(value: unknown): ScratchItem[] {
@@ -869,7 +710,6 @@ function Editor({
   onExportMarkdown,
   onMoveDate,
   onDelete,
-  onNotify,
   initialBodyExpanded,
   bodyOpenVersion,
 }: {
@@ -880,48 +720,22 @@ function Editor({
   onExportMarkdown: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
-  onNotify: (message: string) => void;
   initialBodyExpanded: boolean;
   bodyOpenVersion: number;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
-  const [bridgeCandidates, setBridgeCandidates] = useState<DiaryTaskCandidate[]>(() => loadDiaryTaskCandidates());
-  const [taskCompletionItems, setTaskCompletionItems] = useState<TaskDiaryCompletionBridgeItem[]>(() => loadTaskDiaryCompletionBridgeItems());
-  const [candidateSelectMode, setCandidateSelectMode] = useState(false);
-  const [selectedScratchIds, setSelectedScratchIds] = useState<string[]>([]);
-  const [candidateDrafts, setCandidateDrafts] = useState<CandidateDraft[]>([]);
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
     setFreeScratchExpanded(false);
     setScratchDraft("");
-    setBridgeCandidates(loadDiaryTaskCandidates());
-    setTaskCompletionItems(loadTaskDiaryCompletionBridgeItems());
-    setCandidateSelectMode(false);
-    setSelectedScratchIds([]);
-    setCandidateDrafts([]);
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
-
-  useEffect(() => {
-    const refreshBridgeItems = (event: StorageEvent) => {
-      if (event.key === TASK_DIARY_COMPLETIONS_KEY) setTaskCompletionItems(loadTaskDiaryCompletionBridgeItems());
-      if (event.key === DIARY_TASK_CANDIDATES_KEY) setBridgeCandidates(loadDiaryTaskCandidates());
-    };
-    window.addEventListener("storage", refreshBridgeItems);
-    return () => window.removeEventListener("storage", refreshBridgeItems);
-  }, []);
 
   const sortedScratchItems = useMemo(
     () => [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [entry.scratchItems],
-  );
-  const todayTaskCompletionItems = useMemo(
-    () => taskCompletionItems
-      .filter((item) => item.status === "pending" && item.completedLifeDate === entry.date)
-      .sort((a, b) => a.completedAt.localeCompare(b.completedAt)),
-    [taskCompletionItems, entry.date],
   );
 
   function addScratchItem() {
@@ -929,96 +743,6 @@ function Editor({
     if (!text) return;
     onChange({ ...entry, scratchItems: [makeScratchItem(text), ...entry.scratchItems] });
     setScratchDraft("");
-  }
-
-  function removeScratchItem(id: string) {
-    onChange({ ...entry, scratchItems: entry.scratchItems.filter((item) => item.id !== id) });
-  }
-
-  function toggleCandidateSelection(id: string) {
-    setSelectedScratchIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  }
-
-  function openCandidateDrafts() {
-    const selected = sortedScratchItems.filter((item) => selectedScratchIds.includes(item.id));
-    if (selected.length === 0) {
-      onNotify("候補にするメモを選んでください");
-      return;
-    }
-    setCandidateDrafts(selected.map((memo) => ({ memo, title: candidateTitleFromText(memo.text) })));
-  }
-
-  function updateCandidateDraft(id: string, title: string) {
-    setCandidateDrafts((current) => current.map((draft) => draft.memo.id === id ? { ...draft, title } : draft));
-  }
-
-  function cancelCandidateMode() {
-    setCandidateSelectMode(false);
-    setSelectedScratchIds([]);
-    setCandidateDrafts([]);
-  }
-
-  function sendCandidateDrafts() {
-    const current = loadDiaryTaskCandidates();
-    const next = [...current];
-    let added = 0;
-    let duplicated = 0;
-    candidateDrafts.forEach((draft) => {
-      const title = draft.title.trim();
-      if (!title) return;
-      const duplicate = activeCandidateForMemo(next, entry.date, draft.memo);
-      if (duplicate) {
-        duplicated += 1;
-        return;
-      }
-      next.push({
-        id: makeBridgeCandidateId(),
-        sourceApp: "season-diary",
-        type: "taskCandidate",
-        title,
-        sourceText: draft.memo.text,
-        sourceDate: entry.date,
-        sourceMemoId: draft.memo.id,
-        createdAt: nowIsoLocal(),
-        status: "pending",
-      });
-      added += 1;
-    });
-    saveDiaryTaskCandidates(next);
-    setBridgeCandidates(next);
-    cancelCandidateMode();
-    if (added > 0) onNotify(`${added}件をゆるたすく候補に送りました`);
-    if (duplicated > 0 && added === 0) onNotify("すでにゆるたすく候補に送っています。");
-  }
-
-  function updateTaskCompletionItem(itemId: string, status: TaskDiaryCompletionBridgeStatus) {
-    const current = loadTaskDiaryCompletionBridgeItems();
-    const now = nowIsoLocal();
-    const next = current.map((item) => item.id === itemId ? {
-      ...item,
-      status,
-      processedAt: now,
-      targetDiaryDate: entry.date,
-      updatedAt: now,
-    } : item);
-    saveTaskDiaryCompletionBridgeItems(next);
-    setTaskCompletionItems(next);
-  }
-
-  function importTaskCompletionItem(item: TaskDiaryCompletionBridgeItem) {
-    const line = taskCompletionLine(item);
-    const ok = window.confirm(`今日の事実に追加しますか？\n\n・${line}`);
-    if (!ok) return;
-    onChange({ ...entry, body: appendTodayFact(entry.body, line) });
-    updateTaskCompletionItem(item.id, "imported");
-    onNotify("今日の事実に追加しました");
-  }
-
-  function dismissTaskCompletionItem(item: TaskDiaryCompletionBridgeItem) {
-    const ok = window.confirm("この素材を使わないにしますか？");
-    if (!ok) return;
-    updateTaskCompletionItem(item.id, "dismissed");
-    onNotify("素材を使わないにしました");
   }
 
   return (
@@ -1110,34 +834,6 @@ function Editor({
         )}
       </section>
 
-      <section className="field-group material-box">
-        <div className="material-box-head">
-          <h2>今日の素材箱</h2>
-          <span>{todayTaskCompletionItems.length}件</span>
-        </div>
-        <h3>ゆるたすく完了ログ</h3>
-        {todayTaskCompletionItems.length === 0 ? (
-          <p className="empty">今日のゆるたすく完了ログはまだありません。</p>
-        ) : (
-          <div className="material-list">
-            {todayTaskCompletionItems.map((item) => (
-              <article className="material-item" key={item.id}>
-                <p>{taskCompletionLine(item)}</p>
-                {item.memo && <p className="material-memo">{item.memo}</p>}
-                <div className="material-actions">
-                  <button className="primary" type="button" onClick={() => importTaskCompletionItem(item)}>
-                    今日の事実に追加
-                  </button>
-                  <button type="button" onClick={() => dismissTaskCompletionItem(item)}>
-                    使わない
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
       <section className="field-group free-diary-area">
         <button className="details-toggle" type="button" onClick={() => setFreeScratchExpanded((expanded) => !expanded)}>
           {freeScratchExpanded ? "日記を閉じる" : "日記を書く"}
@@ -1165,11 +861,6 @@ function Editor({
         <div className="scratch-history">
           <div className="scratch-history-head">
             <h2>今日のメモ履歴</h2>
-            {sortedScratchItems.length > 0 && !candidateSelectMode && (
-              <button className="subtle-button" type="button" onClick={() => setCandidateSelectMode(true)}>
-                ゆるたすく候補を選ぶ
-              </button>
-            )}
           </div>
           {sortedScratchItems.length === 0 ? (
             <p className="empty">まだメモはありません。</p>
@@ -1177,62 +868,13 @@ function Editor({
             <ul>
               {sortedScratchItems.map((item) => (
                 <li key={item.id}>
-                  {candidateSelectMode && (
-                    <label className="scratch-select-check">
-                      <input
-                        type="checkbox"
-                        checked={selectedScratchIds.includes(item.id)}
-                        disabled={Boolean(activeCandidateForMemo(bridgeCandidates, entry.date, item))}
-                        onChange={() => toggleCandidateSelection(item.id)}
-                      />
-                      <span className="sr-only">候補に選ぶ</span>
-                    </label>
-                  )}
                   <div>
                     <time>{timeOnly(item.createdAt)}</time>
                     <p>{item.text}</p>
-                    {activeCandidateForMemo(bridgeCandidates, entry.date, item) && <span className="sent-label">送信済み</span>}
                   </div>
-                  {!candidateSelectMode && (
-                    <button className="small-danger" type="button" onClick={() => removeScratchItem(item.id)}>
-                      削除
-                    </button>
-                  )}
                 </li>
               ))}
             </ul>
-          )}
-          {candidateSelectMode && candidateDrafts.length === 0 && (
-            <div className="candidate-actions">
-              <button className="primary" type="button" onClick={openCandidateDrafts}>
-                選んだメモをゆるたすく候補にする
-              </button>
-              <button type="button" onClick={cancelCandidateMode}>
-                キャンセル
-              </button>
-            </div>
-          )}
-          {candidateDrafts.length > 0 && (
-            <div className="candidate-draft-panel">
-              <h3>ゆるたすく候補にする内容</h3>
-              {candidateDrafts.map((draft) => (
-                <div className="candidate-draft-item" key={draft.memo.id}>
-                  <p className="candidate-source">元メモ：{draft.memo.text}</p>
-                  <label>
-                    候補タイトル
-                    <input value={draft.title} onChange={(event) => updateCandidateDraft(draft.memo.id, event.target.value)} />
-                  </label>
-                </div>
-              ))}
-              <div className="candidate-actions">
-                <button className="primary" type="button" onClick={sendCandidateDrafts}>
-                  ゆるたすく候補に送る
-                </button>
-                <button type="button" onClick={cancelCandidateMode}>
-                  キャンセル
-                </button>
-              </div>
-            </div>
           )}
         </div>
       </section>
@@ -1278,6 +920,7 @@ export default function App() {
   const [initialBodyExpanded, setInitialBodyExpanded] = useState(false);
   const [bodyOpenVersion, setBodyOpenVersion] = useState(0);
   const [entryViewMode, setEntryViewMode] = useState<"read" | "edit">("edit");
+  const [scratchManageDate, setScratchManageDate] = useState("");
 
   async function refreshEntries() {
     setEntries(await getAllEntries());
@@ -1402,6 +1045,22 @@ export default function App() {
     notify("日記を削除しました");
   }
 
+  // 設定タブの「らくがきメモの削除」専用。日記本体の削除フローとは別
+  async function removeScratchItemFromDate(date: string, item: ScratchItem) {
+    const ok = window.confirm(`このらくがきメモを削除しますか？\n\n${item.text}`);
+    if (!ok) return;
+    const target = await getEntry(date);
+    if (!target) return;
+    const updated: DiaryEntry = { ...target, scratchItems: target.scratchItems.filter((scratchItem) => scratchItem.id !== item.id) };
+    await saveEntry(updated);
+    await refreshEntries();
+    // 今開いている入力中の日記と同じ日付なら、未保存の入力内容を消さずにメモ一覧だけ同期する
+    if (entry && entry.date === date) {
+      setEntry((current) => (current ? { ...current, scratchItems: current.scratchItems.filter((scratchItem) => scratchItem.id !== item.id) } : current));
+    }
+    notify("らくがきメモを削除しました");
+  }
+
   const searchResults = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return entries.filter((item) => {
@@ -1422,6 +1081,12 @@ export default function App() {
 
   // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
   const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
+
+  // 設定タブの「らくがきメモの削除」で選んだ日付の日記
+  const scratchManageEntry = useMemo(
+    () => entries.find((item) => item.date === scratchManageDate) ?? null,
+    [entries, scratchManageDate],
+  );
 
   const memoryCards = useMemo(() => {
     const todayKey = getLifeDateKey(new Date(), settings.dayBoundaryTime);
@@ -1606,7 +1271,6 @@ export default function App() {
               onExportMarkdown={() => void exportEntryMarkdown()}
               onMoveDate={openDate}
               onDelete={() => void removeCurrentEntry()}
-              onNotify={notify}
               initialBodyExpanded={initialBodyExpanded}
               bodyOpenVersion={bodyOpenVersion}
             />
@@ -1885,6 +1549,47 @@ export default function App() {
                 <li>JSONバックアップファイルをGitHubや公開フォルダに入れないでください。</li>
                 <li>JSONは復元用、Markdownは閲覧・共有・ChatGPT連携用です。</li>
               </ul>
+            </section>
+
+            <section className="settings-section subtle-section">
+              <h2>らくがきメモの削除</h2>
+              <p className="notice">
+                らくがき帳は基本的に書きっぱなしにする場所で、日記画面には削除ボタンを置いていません。
+                個人情報や第三者のことをうっかり書いてしまったときなど、どうしても消したい場合だけここから削除してください。
+              </p>
+              <label className="settings-field">
+                日付を選ぶ
+                <input
+                  type="date"
+                  value={scratchManageDate}
+                  onChange={(event) => setScratchManageDate(event.target.value)}
+                />
+              </label>
+              {scratchManageDate && (
+                scratchManageEntry && scratchManageEntry.scratchItems.length > 0 ? (
+                  <ul className="scratch-manage-list">
+                    {[...scratchManageEntry.scratchItems]
+                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                      .map((item) => (
+                        <li key={item.id}>
+                          <div>
+                            <time>{timeOnly(item.createdAt)}</time>
+                            <p>{item.text}</p>
+                          </div>
+                          <button
+                            className="small-danger"
+                            type="button"
+                            onClick={() => void removeScratchItemFromDate(scratchManageDate, item)}
+                          >
+                            削除
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="empty">この日のらくがきメモはありません。</p>
+                )
+              )}
             </section>
           </div>
         )}

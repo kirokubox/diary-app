@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TouchEvent as ReactTouchEvent } from "react";
 import {
   APP_VERSION,
   DAY_BOUNDARY_OPTIONS,
@@ -6,6 +7,7 @@ import {
   DEFAULT_TEMPLATE,
   ENERGY_OPTIONS,
   MOOD_OPTIONS,
+  PHOTO_MAX_COUNT,
 } from "./constants";
 import {
   addDays,
@@ -18,21 +20,33 @@ import {
   weekdayOf,
   yearsAgoExact,
 } from "./dateUtils";
-import { downloadText } from "./fileUtils";
+import { downloadBlob, downloadText } from "./fileUtils";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
+import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { buildEntrySummary, buildSearchSnippet, classifyBodyLines, estimateBedTime } from "./summary";
 import type { SearchSnippet } from "./summary";
 import {
   clearEntries,
+  clearPhotos,
   clearSettings,
   deleteEntry,
+  deletePhoto,
+  deleteUnreferencedPhotos,
   getAllEntries,
+  getAllPhotoIds,
+  getAllPhotos,
   getEntry,
+  getPhoto,
+  getPhotoStorageStats,
   getSettings,
+  normalizePhotoMeta,
+  putPhoto,
   saveEntry,
   saveSettings,
 } from "./storage";
-import type { AppSettings, DiaryEntry, Energy, Mood, SaveState, ScratchItem, TabKey } from "./types";
+import type { AppSettings, DiaryEntry, DiaryPhoto, Energy, Mood, SaveState, ScratchItem, TabKey } from "./types";
+import { createZipBlob, readZipEntries } from "./zip";
+import type { ZipInputFile } from "./zip";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
@@ -67,6 +81,17 @@ type ImportSkip = {
   message: string;
 };
 
+// 写真つきZIPから取り出した画像1枚分（本文の追加後、参照されているものだけ復元する）
+type ZipPhotoPayload = {
+  id: string;
+  date: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  createdAt: string;
+  blob: Blob;
+};
+
 type ImportPreview = {
   fileName: string;
   total: number;
@@ -75,7 +100,21 @@ type ImportPreview = {
   errors: ImportIssue[];
   warnings: ImportIssue[];
   settingsFound: boolean;
+  photoMetaCount: number;
+  zipPhotos: ZipPhotoPayload[];
 };
+
+const PHOTO_BACKUP_README = `季節日記 写真つきバックアップ
+
+- diary-backup.json … 日記本文・睡眠・らくがきメモ・設定（通常のJSONバックアップと同じ形式）
+- photos/日付/連番_写真ID.webp … 写真の画像ファイル（長辺1600pxへ縮小済み・EXIFなし）
+- photos.json … 画像ファイルと日記を結びつける一覧
+
+復元するときは、このZIPをそのまま季節日記の設定タブ「写真つきZIPインポート」で選んでください。
+中身を展開して再圧縮したZIPでも読み込めますが、フォルダ構成とファイル名は変えないでください。
+
+このZIPには本物の写真が入っています。GitHubや公開フォルダ、共有用の資料に置かないでください。
+`;
 
 function makeEntry(date: string, settings: AppSettings): DiaryEntry {
   const stamp = nowIsoLocal();
@@ -92,6 +131,7 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
     body: settings.template,
     scratch: "",
     scratchItems: [],
+    photos: [],
     createdAt: stamp,
     updatedAt: stamp,
   };
@@ -182,6 +222,7 @@ function normalizeImportedEntry(entry: DiaryEntry): DiaryEntry {
     tags: entry.tags.map(cleanTag).filter(Boolean),
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: normalizeScratchItems(entry.scratchItems),
+    photos: normalizePhotoMeta(entry.photos),
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
     sleepHours: parseHours(entry.sleepHours),
     napHours: parseHours(entry.napHours),
@@ -299,6 +340,42 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
           errors.push({ index, date: dateForIssue, message: `scratchItems ${scratchIndex + 1}件目の createdAt は文字列にしてください。` });
         }
       });
+    }
+  }
+
+  // photos は写真機能（2026-07-30）以降のフィールド。無いJSONもそのまま読み込める
+  if ("photos" in item) {
+    if (!Array.isArray(item.photos)) {
+      errors.push({ index, date: dateForIssue, message: "photos は配列にしてください。" });
+    } else {
+      item.photos.forEach((photo, photoIndex) => {
+        if (!photo || typeof photo !== "object") {
+          errors.push({ index, date: dateForIssue, message: `photos ${photoIndex + 1}件目はオブジェクトにしてください。` });
+          return;
+        }
+        const partial = photo as Partial<DiaryPhoto>;
+        if (typeof partial.id !== "string" || !partial.id) {
+          errors.push({ index, date: dateForIssue, message: `photos ${photoIndex + 1}件目の id がありません。` });
+        }
+        (["width", "height", "byteSize"] as const).forEach((key) => {
+          if (key in partial && typeof partial[key] !== "number") {
+            errors.push({ index, date: dateForIssue, message: `photos ${photoIndex + 1}件目の ${key} は数値にしてください。` });
+          }
+        });
+      });
+      const ids = item.photos
+        .filter((photo): photo is DiaryPhoto => !!photo && typeof photo === "object")
+        .map((photo) => photo.id);
+      if (new Set(ids).size !== ids.length) {
+        errors.push({ index, date: dateForIssue, message: "photos の id が同じ日の中で重複しています。" });
+      }
+      if (item.photos.length > PHOTO_MAX_COUNT) {
+        warnings.push({
+          index,
+          date: dateForIssue,
+          message: `写真が${item.photos.length}枚あります（上限${PHOTO_MAX_COUNT}枚）。そのまま読み込みますが、追加はできません。`,
+        });
+      }
     }
   }
 
@@ -542,6 +619,242 @@ function RecentSleepCard({
   );
 }
 
+// 表示中の日付の写真だけ blob を読み込み、objectURL を作る。
+// 日付が変わったり画面を離れたら revoke する（一覧では画像を読み込まない）
+function usePhotoUrls(photos: DiaryPhoto[]): { urls: Record<string, string>; missingIds: string[] } {
+  const photoKey = photos.map((photo) => photo.id).join(",");
+  const [state, setState] = useState<{ urls: Record<string, string>; missingIds: string[] }>({
+    urls: {},
+    missingIds: [],
+  });
+
+  useEffect(() => {
+    const ids = photoKey ? photoKey.split(",") : [];
+    if (ids.length === 0) {
+      setState({ urls: {}, missingIds: [] });
+      return;
+    }
+    let cancelled = false;
+    const createdUrls: string[] = [];
+
+    async function load() {
+      const urls: Record<string, string> = {};
+      const missingIds: string[] = [];
+      for (const id of ids) {
+        try {
+          const stored = await getPhoto(id);
+          if (!stored?.blob) {
+            missingIds.push(id);
+            continue;
+          }
+          const url = URL.createObjectURL(stored.blob);
+          createdUrls.push(url);
+          urls[id] = url;
+        } catch {
+          missingIds.push(id);
+        }
+      }
+      if (cancelled) {
+        createdUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      setState({ urls, missingIds });
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [photoKey]);
+
+  return state;
+}
+
+function PhotoViewer({
+  photos,
+  urls,
+  index,
+  editable,
+  onMove,
+  onClose,
+  onDelete,
+}: {
+  photos: DiaryPhoto[];
+  urls: Record<string, string>;
+  index: number;
+  editable: boolean;
+  onMove: (nextIndex: number) => void;
+  onClose: () => void;
+  onDelete: (photo: DiaryPhoto) => void | Promise<void>;
+}) {
+  const photo = photos[index];
+  const touchStartX = useRef<number | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowLeft" && index > 0) onMove(index - 1);
+      if (event.key === "ArrowRight" && index < photos.length - 1) onMove(index + 1);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [index, photos.length, onClose, onMove]);
+
+  if (!photo) return null;
+
+  function onTouchEnd(event: ReactTouchEvent<HTMLDivElement>) {
+    const startX = touchStartX.current;
+    touchStartX.current = null;
+    if (startX === null) return;
+    const deltaX = event.changedTouches[0].clientX - startX;
+    if (Math.abs(deltaX) < 44) return;
+    if (deltaX < 0 && index < photos.length - 1) onMove(index + 1);
+    if (deltaX > 0 && index > 0) onMove(index - 1);
+  }
+
+  return (
+    <div className="photo-viewer" role="dialog" aria-modal="true" aria-label="写真の拡大表示">
+      <div className="photo-viewer-bar">
+        <span className="photo-viewer-count">
+          {index + 1} / {photos.length}
+        </span>
+        <button type="button" onClick={onClose}>
+          閉じる
+        </button>
+      </div>
+      <div
+        className="photo-viewer-stage"
+        onTouchStart={(event) => {
+          touchStartX.current = event.touches[0].clientX;
+        }}
+        onTouchEnd={onTouchEnd}
+      >
+        {urls[photo.id] ? (
+          <img src={urls[photo.id]} alt={`${index + 1}枚目の写真`} />
+        ) : (
+          <p className="photo-viewer-missing">この写真の画像を読み込めませんでした。</p>
+        )}
+      </div>
+      <div className="photo-viewer-actions">
+        <button type="button" disabled={index === 0} onClick={() => onMove(index - 1)}>
+          ◀ 前
+        </button>
+        {editable && (
+          <button className="danger" type="button" onClick={() => void onDelete(photo)}>
+            この写真を削除
+          </button>
+        )}
+        <button type="button" disabled={index >= photos.length - 1} onClick={() => onMove(index + 1)}>
+          次 ▶
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 入力モード（editable）と閲覧モードの両方で使う写真セクション。
+// 写真が0枚のときはグリッドを描かない
+function PhotoSection({
+  photos,
+  editable,
+  busy,
+  notice,
+  onAddFiles,
+  onDeletePhoto,
+}: {
+  photos: DiaryPhoto[];
+  editable: boolean;
+  busy?: boolean;
+  notice?: string;
+  onAddFiles?: (files: File[]) => void | Promise<void>;
+  onDeletePhoto?: (photo: DiaryPhoto) => Promise<boolean>;
+}) {
+  const { urls, missingIds } = usePhotoUrls(photos);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const remaining = PHOTO_MAX_COUNT - photos.length;
+
+  async function handleDelete(photo: DiaryPhoto) {
+    if (!onDeletePhoto) return;
+    const deleted = await onDeletePhoto(photo);
+    if (deleted) setViewerIndex(null);
+  }
+
+  return (
+    <section className={editable ? "field-group photo-area" : "reading-section photo-area"}>
+      {editable ? <label>今日の写真</label> : <h2>写真</h2>}
+
+      {photos.length > 0 && (
+        <ul className="photo-grid">
+          {photos.map((photo, index) => (
+            <li key={photo.id}>
+              <button
+                className="photo-tile"
+                type="button"
+                disabled={!urls[photo.id]}
+                onClick={() => setViewerIndex(index)}
+              >
+                {urls[photo.id] ? (
+                  <img src={urls[photo.id]} alt={`${index + 1}枚目の写真`} loading="lazy" />
+                ) : (
+                  <span className="photo-tile-missing">読み込めません</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {missingIds.length > 0 && (
+        <p className="photo-notice">
+          画像が見つからない写真が{missingIds.length}枚あります。写真つきZIPバックアップから復元できます。
+        </p>
+      )}
+
+      {editable && (
+        <>
+          {remaining > 0 ? (
+            <label className={busy ? "photo-add busy" : "photo-add"}>
+              {busy ? "写真を保存しています…" : "＋ 写真を追加"}
+              <input
+                accept="image/*"
+                multiple
+                type="file"
+                disabled={busy}
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.currentTarget.value = "";
+                  if (files.length > 0) void onAddFiles?.(files);
+                }}
+              />
+            </label>
+          ) : (
+            <p className="subtle">写真は1日{PHOTO_MAX_COUNT}枚までです。</p>
+          )}
+          {notice && <p className="photo-notice">{notice}</p>}
+        </>
+      )}
+
+      {viewerIndex !== null && (
+        <PhotoViewer
+          photos={photos}
+          urls={urls}
+          index={viewerIndex}
+          editable={editable}
+          onMove={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+          onDelete={handleDelete}
+        />
+      )}
+    </section>
+  );
+}
+
 function CompactEntryCard({
   entry,
   snippet,
@@ -551,7 +864,10 @@ function CompactEntryCard({
   snippet?: SearchSnippet | null;
   onOpen: (date: string) => void | Promise<void>;
 }) {
-  const rhythmItems = rhythmMeta(entry);
+  // 写真がある日だけカメラアイコンと枚数を足す（睡眠情報と同じ1行に収め、カードを高くしない）
+  const rhythmItems = [...rhythmMeta(entry), entry.photos.length > 0 ? `📷 ${entry.photos.length}` : ""].filter(
+    Boolean,
+  );
   const summary = snippet ? "" : buildEntrySummary(entry);
   return (
     <button className="entry-card compact-card" onClick={() => onOpen(entry.date)} type="button">
@@ -674,6 +990,9 @@ function ReadingView({
             </section>
           )}
 
+          {/* 写真はその日のまとまった記録として日記の直後に置き、時系列のらくがきメモ履歴はその後に出す */}
+          {entry.photos.length > 0 && <PhotoSection photos={entry.photos} editable={false} />}
+
           {sortedScratchItems.length > 0 && (
             <section className="reading-section">
               <h2>らくがきメモ履歴</h2>
@@ -712,6 +1031,10 @@ function Editor({
   onDelete,
   initialBodyExpanded,
   bodyOpenVersion,
+  photoBusy,
+  photoNotice,
+  onAddPhotos,
+  onDeletePhoto,
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
@@ -722,6 +1045,10 @@ function Editor({
   onDelete: () => void;
   initialBodyExpanded: boolean;
   bodyOpenVersion: number;
+  photoBusy: boolean;
+  photoNotice: string;
+  onAddPhotos: (files: File[]) => void | Promise<void>;
+  onDeletePhoto: (photo: DiaryPhoto) => Promise<boolean>;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
@@ -892,6 +1219,16 @@ function Editor({
           削除
         </button>
       </div>
+
+      {/* 写真は画面の一番下。写真を追加しない日は「＋ 写真を追加」だけが増える */}
+      <PhotoSection
+        photos={entry.photos}
+        editable
+        busy={photoBusy}
+        notice={photoNotice}
+        onAddFiles={onAddPhotos}
+        onDeletePhoto={onDeletePhoto}
+      />
     </div>
   );
 }
@@ -906,6 +1243,19 @@ export default function App() {
   const [toast, setToast] = useState("");
   const saveTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
+  // 写真の変換・保存の途中に本文が編集されても巻き込まないよう、最新のエントリを参照で持つ
+  const entryRef = useRef<DiaryEntry | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoNotice, setPhotoNotice] = useState("");
+  // 写真が増減したら保存容量を測り直すためのカウンタ
+  const [photoStoreVersion, setPhotoStoreVersion] = useState(0);
+  const [zipBusy, setZipBusy] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<{
+    count: number;
+    byteSize: number;
+    usage: number | null;
+    quota: number | null;
+  } | null>(null);
 
   const [query, setQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -916,6 +1266,7 @@ export default function App() {
     added: number;
     skipped: ImportSkip[];
     errors: number;
+    restoredPhotos: number;
   } | null>(null);
   const [initialBodyExpanded, setInitialBodyExpanded] = useState(false);
   const [bodyOpenVersion, setBodyOpenVersion] = useState(0);
@@ -931,15 +1282,53 @@ export default function App() {
       const loadedSettings = await getSettings();
       const initialDate = getLifeDateKey(new Date(), loadedSettings.dayBoundaryTime);
       const loadedEntry = await getEntry(initialDate);
+      const loadedEntries = await getAllEntries();
       setSettings(loadedSettings);
       setTemplateDraft(loadedSettings.template);
-      setEntries(await getAllEntries());
+      setEntries(loadedEntries);
       setActiveDate(initialDate);
       setEntry(loadedEntry ?? makeEntry(initialDate, loadedSettings));
       hydrated.current = true;
+      // 写真の保存中にアプリを閉じた場合など、どの日記からも参照されていない画像を掃除する
+      try {
+        await deleteUnreferencedPhotos(
+          new Set(loadedEntries.flatMap((item) => item.photos.map((photo) => photo.id))),
+        );
+      } catch {
+        // 掃除に失敗しても起動は続ける（次回起動時にもう一度試す）
+      }
     }
     void init();
   }, []);
+
+  useEffect(() => {
+    entryRef.current = entry;
+  }, [entry]);
+
+  // 設定タブを開いたときと写真が増減したときに、写真の保存容量を測り直す
+  useEffect(() => {
+    if (tab !== "settings") return;
+    let cancelled = false;
+    async function loadStorageInfo() {
+      try {
+        const stats = await getPhotoStorageStats();
+        let usage: number | null = null;
+        let quota: number | null = null;
+        if (navigator.storage?.estimate) {
+          const estimate = await navigator.storage.estimate();
+          usage = estimate.usage ?? null;
+          quota = estimate.quota ?? null;
+        }
+        if (!cancelled) setStorageInfo({ ...stats, usage, quota });
+      } catch {
+        if (!cancelled) setStorageInfo(null);
+      }
+    }
+    void loadStorageInfo();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, entries, photoStoreVersion]);
 
   useEffect(() => {
     async function loadEntry() {
@@ -977,6 +1366,7 @@ export default function App() {
       tags: target.tags.map(cleanTag).filter(Boolean),
       scratch: typeof target.scratch === "string" ? target.scratch : "",
       scratchItems: normalizeScratchItems(target.scratchItems),
+      photos: normalizePhotoMeta(target.photos),
       wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
       sleepHours: parseHours(target.sleepHours),
       napHours: parseHours(target.napHours),
@@ -990,6 +1380,113 @@ export default function App() {
   function updateEntry(next: DiaryEntry) {
     setEntry(next);
     setSaveState("dirty");
+  }
+
+  // 写真の追加。1枚ずつ「縮小 → 画像を保存 → メタデータを日記へ追記」の順で処理し、
+  // 失敗した写真だけを飛ばす。文字データ（振り返り・日記・らくがきメモ）には触らない
+  async function addPhotos(files: File[]) {
+    const current = entryRef.current;
+    if (!current || files.length === 0) return;
+    const remaining = PHOTO_MAX_COUNT - current.photos.length;
+    if (remaining <= 0) {
+      setPhotoNotice(`写真は1日${PHOTO_MAX_COUNT}枚までです。`);
+      return;
+    }
+
+    const targetDate = current.date;
+    const targets = files.slice(0, remaining);
+    const addedPhotos: DiaryPhoto[] = [];
+    let failedCount = 0;
+    let quotaFailed = false;
+
+    setPhotoBusy(true);
+    setPhotoNotice("");
+    for (const file of targets) {
+      try {
+        const prepared = await preparePhoto(file);
+        const id = makePhotoId(targetDate);
+        const createdAt = nowIsoLocal();
+        await putPhoto({
+          id,
+          date: targetDate,
+          blob: prepared.blob,
+          mimeType: prepared.mimeType,
+          width: prepared.width,
+          height: prepared.height,
+          byteSize: prepared.blob.size,
+          createdAt,
+        });
+        addedPhotos.push({
+          id,
+          width: prepared.width,
+          height: prepared.height,
+          byteSize: prepared.blob.size,
+          mimeType: prepared.mimeType,
+          createdAt,
+        });
+      } catch (error) {
+        failedCount += 1;
+        if (error instanceof DOMException && error.name === "QuotaExceededError") quotaFailed = true;
+      }
+    }
+    setPhotoBusy(false);
+    setPhotoStoreVersion((version) => version + 1);
+
+    if (addedPhotos.length > 0) {
+      try {
+        const latest = entryRef.current;
+        if (latest && latest.date === targetDate) {
+          // 変換中に書かれた文字も一緒に保存する
+          await persistEntry({ ...latest, photos: [...latest.photos, ...addedPhotos] });
+        } else {
+          // 変換中に別の日付へ移動した場合は、写真を撮った日の日記へ直接書き込む
+          const stored = (await getEntry(targetDate)) ?? current;
+          await saveEntry({ ...stored, photos: [...stored.photos, ...addedPhotos] });
+          await refreshEntries();
+        }
+      } catch {
+        setPhotoNotice("写真の情報を日記へ保存できませんでした。日記の文字は残っています。もう一度お試しください。");
+        notify("写真を保存できませんでした");
+        return;
+      }
+    }
+
+    const messages: string[] = [];
+    if (addedPhotos.length > 0) messages.push(`写真を${addedPhotos.length}枚追加しました。`);
+    if (files.length > targets.length) {
+      messages.push(`1日${PHOTO_MAX_COUNT}枚までのため、${files.length - targets.length}枚は追加していません。`);
+    }
+    if (quotaFailed) {
+      messages.push("端末の保存容量が足りず、保存できなかった写真があります。日記の文字は保存されています。");
+    } else if (failedCount > 0) {
+      messages.push(`${failedCount}枚は読み込めませんでした。日記の文字は保存されています。`);
+    }
+    setPhotoNotice(failedCount > 0 || files.length > targets.length ? messages.join(" ") : "");
+    if (messages.length > 0) notify(messages[0]);
+  }
+
+  // 写真の削除。先にメタデータを外して保存し、そのあとで画像を消す
+  // （逆順だと、画像が無いのにメタデータだけ残る状態になりうる）
+  async function removePhoto(photo: DiaryPhoto): Promise<boolean> {
+    const current = entryRef.current;
+    if (!current) return false;
+    const ok = window.confirm("この写真を削除しますか？\n\n日記の文字と他の写真は残ります。");
+    if (!ok) return false;
+    try {
+      await persistEntry({ ...current, photos: current.photos.filter((item) => item.id !== photo.id) });
+    } catch {
+      notify("写真を削除できませんでした");
+      return false;
+    }
+    try {
+      await deletePhoto(photo.id);
+    } catch {
+      // 画像の削除だけ失敗した場合は、次回起動時の掃除で消える
+    }
+    setPhotoStoreVersion((version) => version + 1);
+    setPhotoNotice("");
+    notify("写真を削除しました");
+    return true;
   }
 
   async function openDate(date: string) {
@@ -1038,7 +1535,17 @@ export default function App() {
     if (!entry) return;
     const typed = window.prompt("削除するには「削除」と入力してください。");
     if (typed !== "削除") return;
+    const removedPhotos = entry.photos;
     await deleteEntry(entry.id);
+    // 日記を消したら、その日の写真も残さない
+    for (const photo of removedPhotos) {
+      try {
+        await deletePhoto(photo.id);
+      } catch {
+        // 消し残しは次回起動時の掃除で回収する
+      }
+    }
+    setPhotoStoreVersion((version) => version + 1);
     await refreshEntries();
     setEntry(makeEntry(activeDate, settings));
     setSaveState("idle");
@@ -1129,72 +1636,210 @@ export default function App() {
     downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries), "text/markdown");
   }
 
+  // 通常JSONと写真つきZIP内のJSONで共通に使う検証。写真の画像そのものは扱わない
+  async function buildImportPreview(text: string, fileName: string): Promise<ImportPreview> {
+    const data = JSON.parse(text) as unknown;
+    if (!data || typeof data !== "object" || !Array.isArray((data as { entries?: unknown }).entries)) {
+      throw new Error("entries 配列が見つかりません。");
+    }
+    const incoming = (data as { entries: unknown[] }).entries;
+    const current = await getAllEntries();
+    const currentIds = new Set(current.map((item) => item.id));
+    const currentDates = new Set(current.map((item) => item.date));
+    const jsonIds = new Set<string>();
+    const jsonDates = new Set<string>();
+    const addableEntries: DiaryEntry[] = [];
+    const skippedEntries: ImportSkip[] = [];
+    const errors: ImportIssue[] = [];
+    const warnings: ImportIssue[] = [];
+
+    incoming.forEach((item, zeroBasedIndex) => {
+      const index = zeroBasedIndex + 1;
+      const result = validateImportedEntry(item, index);
+      errors.push(...result.errors);
+      warnings.push(...result.warnings);
+      if (!result.entry) return;
+
+      const entry = result.entry;
+      const alreadyInJson = jsonIds.has(entry.id) || jsonDates.has(entry.date);
+      if (alreadyInJson) {
+        errors.push({ index, date: entry.date, message: "同じJSON内で id または date が重複しています。" });
+        return;
+      }
+      jsonIds.add(entry.id);
+      jsonDates.add(entry.date);
+
+      if (currentIds.has(entry.id) || currentDates.has(entry.date)) {
+        skippedEntries.push({
+          index,
+          date: entry.date,
+          message: `${entry.date} は既存の日記があるためスキップします。`,
+        });
+        return;
+      }
+
+      addableEntries.push(entry);
+    });
+
+    const settingsFound = "settings" in data;
+    if (settingsFound) {
+      warnings.push({ message: "settings が含まれていますが、現在の設定は上書きしません。" });
+    }
+
+    const photoMetaCount = addableEntries.reduce((sum, item) => sum + item.photos.length, 0);
+
+    return {
+      fileName,
+      total: incoming.length,
+      addableEntries,
+      skippedEntries,
+      errors,
+      warnings,
+      settingsFound,
+      photoMetaCount,
+      zipPhotos: [],
+    };
+  }
+
   async function importJson(file: File | undefined) {
     if (!file) return;
     setImportResult(null);
     try {
-      const text = await file.text();
-      const data = JSON.parse(text) as unknown;
-      if (!data || typeof data !== "object" || !Array.isArray((data as { entries?: unknown }).entries)) {
-        throw new Error("entries 配列が見つかりません。");
+      const preview = await buildImportPreview(await file.text(), file.name);
+      if (preview.photoMetaCount > 0) {
+        preview.warnings.push({
+          message: `写真の情報が${preview.photoMetaCount}件ありますが、通常のJSONに画像は入っていません。画像も戻すには写真つきZIPインポートを使ってください。`,
+        });
       }
-      const incoming = (data as { entries: unknown[] }).entries;
-      const current = await getAllEntries();
-      const currentIds = new Set(current.map((item) => item.id));
-      const currentDates = new Set(current.map((item) => item.date));
-      const jsonIds = new Set<string>();
-      const jsonDates = new Set<string>();
-      const addableEntries: DiaryEntry[] = [];
-      const skippedEntries: ImportSkip[] = [];
-      const errors: ImportIssue[] = [];
-      const warnings: ImportIssue[] = [];
-
-      incoming.forEach((item, zeroBasedIndex) => {
-        const index = zeroBasedIndex + 1;
-        const result = validateImportedEntry(item, index);
-        errors.push(...result.errors);
-        warnings.push(...result.warnings);
-        if (!result.entry) return;
-
-        const entry = result.entry;
-        const alreadyInJson = jsonIds.has(entry.id) || jsonDates.has(entry.date);
-        if (alreadyInJson) {
-          errors.push({ index, date: entry.date, message: "同じJSON内で id または date が重複しています。" });
-          return;
-        }
-        jsonIds.add(entry.id);
-        jsonDates.add(entry.date);
-
-        if (currentIds.has(entry.id) || currentDates.has(entry.date)) {
-          skippedEntries.push({
-            index,
-            date: entry.date,
-            message: `${entry.date} は既存の日記があるためスキップします。`,
-          });
-          return;
-        }
-
-        addableEntries.push(entry);
-      });
-
-      const settingsFound = "settings" in data;
-      if (settingsFound) {
-        warnings.push({ message: "settings が含まれていますが、現在の設定は上書きしません。" });
-      }
-
-      setImportPreview({
-        fileName: file.name,
-        total: incoming.length,
-        addableEntries,
-        skippedEntries,
-        errors,
-        warnings,
-        settingsFound,
-      });
+      setImportPreview(preview);
       notify("JSONを検証しました。内容を確認してください");
     } catch (error) {
       setImportPreview(null);
       window.alert(error instanceof Error ? error.message : "JSONを読み込めませんでした。");
+    }
+  }
+
+  // 写真つきZIPバックアップの書き出し。日記本文（通常JSONと同じ形式）＋画像＋対応表を1ファイルにまとめる
+  async function exportPhotoZip() {
+    setZipBusy(true);
+    try {
+      const allEntries = await getAllEntries();
+      const storedPhotos = await getAllPhotos();
+      const photoById = new Map(storedPhotos.map((photo) => [photo.id, photo]));
+      const files: ZipInputFile[] = [];
+      const manifest: Array<Record<string, unknown>> = [];
+      let missingCount = 0;
+
+      allEntries.forEach((item) => {
+        item.photos.forEach((meta, index) => {
+          const stored = photoById.get(meta.id);
+          if (!stored?.blob) {
+            missingCount += 1;
+            return;
+          }
+          const path = `photos/${item.date}/${String(index + 1).padStart(2, "0")}_${meta.id}.${photoExtension(
+            stored.mimeType,
+          )}`;
+          files.push({ path, blob: stored.blob });
+          manifest.push({
+            id: meta.id,
+            date: item.date,
+            path,
+            mimeType: stored.mimeType,
+            width: stored.width,
+            height: stored.height,
+            byteSize: stored.byteSize,
+            createdAt: stored.createdAt,
+          });
+        });
+      });
+
+      const exportedAt = nowIsoLocal();
+      const backup = {
+        appName: "Yuki Diary App" as const,
+        version: APP_VERSION,
+        exportedAt,
+        settings,
+        entries: allEntries,
+      };
+      const zip = await createZipBlob(
+        [
+          { path: "diary-backup.json", blob: new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }) },
+          ...files,
+          {
+            path: "photos.json",
+            blob: new Blob(
+              [
+                JSON.stringify(
+                  { appName: "Yuki Diary App", kind: "photo-backup", version: APP_VERSION, exportedAt, photos: manifest },
+                  null,
+                  2,
+                ),
+              ],
+              { type: "application/json" },
+            ),
+          },
+          { path: "README.txt", blob: new Blob([PHOTO_BACKUP_README], { type: "text/plain" }) },
+        ],
+        new Date(),
+      );
+      downloadBlob(`diary-photo-backup-${toDateInputValue()}.zip`, zip);
+      notify(
+        missingCount > 0
+          ? `ZIPを出力しました（画像が見つからない写真${missingCount}枚を除く）`
+          : `ZIPを出力しました（写真${files.length}枚）`,
+      );
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "ZIPを出力できませんでした。");
+    } finally {
+      setZipBusy(false);
+    }
+  }
+
+  async function importPhotoZip(file: File | undefined) {
+    if (!file) return;
+    setImportResult(null);
+    setZipBusy(true);
+    try {
+      const zipEntries = await readZipEntries(file);
+      const backupFile = zipEntries.find((item) => item.path.replace(/^.*\//, "") === "diary-backup.json");
+      if (!backupFile) throw new Error("ZIPの中に diary-backup.json が見つかりません。");
+      const manifestFile = zipEntries.find((item) => item.path.replace(/^.*\//, "") === "photos.json");
+      const preview = await buildImportPreview(await backupFile.blob.text(), file.name);
+
+      const zipPhotos: ZipPhotoPayload[] = [];
+      if (manifestFile) {
+        const manifest = JSON.parse(await manifestFile.blob.text()) as { photos?: unknown };
+        const list = Array.isArray(manifest.photos) ? manifest.photos : [];
+        const byPath = new Map(zipEntries.map((item) => [item.path, item.blob]));
+        for (const raw of list) {
+          if (!raw || typeof raw !== "object") continue;
+          const photo = raw as Record<string, unknown>;
+          const id = typeof photo.id === "string" ? photo.id : "";
+          const path = typeof photo.path === "string" ? photo.path : "";
+          const blob = byPath.get(path);
+          if (!id || !blob) continue;
+          zipPhotos.push({
+            id,
+            date: typeof photo.date === "string" ? photo.date : "",
+            mimeType: typeof photo.mimeType === "string" ? photo.mimeType : "image/jpeg",
+            width: typeof photo.width === "number" ? photo.width : 0,
+            height: typeof photo.height === "number" ? photo.height : 0,
+            createdAt: typeof photo.createdAt === "string" ? photo.createdAt : "",
+            blob,
+          });
+        }
+      } else {
+        preview.warnings.push({ message: "ZIPの中に photos.json が無いため、写真は復元できません（本文だけ復元します）。" });
+      }
+
+      setImportPreview({ ...preview, zipPhotos });
+      notify("ZIPを検証しました。内容を確認してください");
+    } catch (error) {
+      setImportPreview(null);
+      window.alert(error instanceof Error ? error.message : "ZIPを読み込めませんでした。");
+    } finally {
+      setZipBusy(false);
     }
   }
 
@@ -1205,12 +1850,44 @@ export default function App() {
         await saveEntry(item);
       }
       await refreshEntries();
+
+      // 本文を追加したあと、日記から参照されている写真だけを復元する。
+      // すでに端末にある画像は上書きしない（本文が既存でも、画像が失われている日は復元できる）
+      let restoredPhotos = 0;
+      if (importPreview.zipPhotos.length > 0) {
+        const afterEntries = await getAllEntries();
+        const referencedIds = new Set(afterEntries.flatMap((item) => item.photos.map((photo) => photo.id)));
+        const existingIds = new Set(await getAllPhotoIds());
+        for (const photo of importPreview.zipPhotos) {
+          if (!referencedIds.has(photo.id) || existingIds.has(photo.id)) continue;
+          const blob = new Blob([await photo.blob.arrayBuffer()], { type: photo.mimeType });
+          await putPhoto({
+            id: photo.id,
+            date: photo.date,
+            blob,
+            mimeType: photo.mimeType,
+            width: photo.width,
+            height: photo.height,
+            byteSize: blob.size,
+            createdAt: photo.createdAt,
+          });
+          restoredPhotos += 1;
+        }
+        setPhotoStoreVersion((version) => version + 1);
+      }
+
       setImportResult({
         added: importPreview.addableEntries.length,
         skipped: importPreview.skippedEntries,
         errors: importPreview.errors.length,
+        restoredPhotos,
       });
-      notify(`インポート完了：${importPreview.addableEntries.length}件を追加しました`);
+      setImportPreview(null);
+      notify(
+        restoredPhotos > 0
+          ? `インポート完了：${importPreview.addableEntries.length}件と写真${restoredPhotos}枚を追加しました`
+          : `インポート完了：${importPreview.addableEntries.length}件を追加しました`,
+      );
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "インポートに失敗しました。");
     }
@@ -1242,6 +1919,8 @@ export default function App() {
     const typed = window.prompt("全データを削除するには「削除」と入力してください。");
     if (typed !== "削除") return;
     await clearEntries();
+    await clearPhotos();
+    setPhotoStoreVersion((version) => version + 1);
     await clearSettings();
     setSettings(DEFAULT_SETTINGS);
     setTemplateDraft(DEFAULT_SETTINGS.template);
@@ -1273,6 +1952,10 @@ export default function App() {
               onDelete={() => void removeCurrentEntry()}
               initialBodyExpanded={initialBodyExpanded}
               bodyOpenVersion={bodyOpenVersion}
+              photoBusy={photoBusy}
+              photoNotice={photoNotice}
+              onAddPhotos={addPhotos}
+              onDeletePhoto={removePhoto}
             />
           )
         )}
@@ -1407,6 +2090,11 @@ export default function App() {
                 インポート前に、現在の日記データをJSONエクスポートしてバックアップすることをおすすめします。
                 インポートでは既存の日記を上書きせず、新規データだけを追加します。
               </p>
+              <p className="notice">
+                <strong>JSONエクスポートに写真の画像は入りません。</strong>
+                入るのは「写真が何枚あるか」という情報だけです。写真も含めて残す場合は、下の「写真つきZIPエクスポート」を使ってください。
+                JSONだけで復元すると、本文は戻りますが写真は空のまま（読み込めない写真として表示）になります。
+              </p>
               <div className="action-row">
                 <button onClick={() => void exportJson()} type="button">
                   JSONエクスポート
@@ -1426,6 +2114,23 @@ export default function App() {
                   }}
                 />
               </label>
+              <div className="action-row">
+                <button disabled={zipBusy} onClick={() => void exportPhotoZip()} type="button">
+                  {zipBusy ? "処理中..." : "写真つきZIPエクスポート"}
+                </button>
+              </div>
+              <label className="file-picker">
+                写真つきZIPインポート
+                <input
+                  accept="application/zip,.zip"
+                  disabled={zipBusy}
+                  type="file"
+                  onChange={(event) => {
+                    void importPhotoZip(event.target.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
               {importPreview && (
                 <div className="import-preview">
                   <div>
@@ -1439,6 +2144,15 @@ export default function App() {
                     <span>エラー：{importPreview.errors.length}件</span>
                     <span>警告：{importPreview.warnings.length}件</span>
                   </div>
+                  {importPreview.zipPhotos.length > 0 && (
+                    <div className="import-detail">
+                      <h4>写真</h4>
+                      <p>
+                        ZIPに写真{importPreview.zipPhotos.length}枚が入っています。
+                        日記から参照されていて、まだ端末に無い写真だけを復元します（既にある写真は上書きしません）。
+                      </p>
+                    </div>
+                  )}
 
                   {importPreview.addableEntries.length > 0 && (
                     <div className="import-detail">
@@ -1483,11 +2197,14 @@ export default function App() {
                   <div className="action-row">
                     <button
                       className="primary"
-                      disabled={importPreview.errors.length > 0 || importPreview.addableEntries.length === 0}
+                      disabled={
+                        importPreview.errors.length > 0 ||
+                        (importPreview.addableEntries.length === 0 && importPreview.zipPhotos.length === 0)
+                      }
                       onClick={() => void addNewEntriesFromImport()}
                       type="button"
                     >
-                      新規データだけ追加する
+                      {importPreview.zipPhotos.length > 0 ? "新規データと写真を復元する" : "新規データだけ追加する"}
                     </button>
                     <button onClick={() => setImportPreview(null)} type="button">
                       プレビューを閉じる
@@ -1507,6 +2224,7 @@ export default function App() {
                     <span>追加：{importResult.added}件</span>
                     <span>スキップ：{importResult.skipped.length}件</span>
                     <span>エラー：{importResult.errors}件</span>
+                    <span>写真復元：{importResult.restoredPhotos}枚</span>
                   </div>
                   {importResult.skipped.length > 0 && (
                     <div className="import-detail">
@@ -1515,6 +2233,30 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              )}
+            </section>
+
+            <section className="settings-section">
+              <h2>写真の保存容量</h2>
+              <p className="notice">
+                写真は追加したときに長辺1600pxへ縮小して保存します（撮影場所などのメタデータは残りません）。
+                元の写真は端末のギャラリー側にそのまま残ります。
+              </p>
+              {storageInfo ? (
+                <div className="import-summary storage-summary">
+                  <span>保存枚数：{storageInfo.count}枚</span>
+                  <span>写真の合計：{formatByteSize(storageInfo.byteSize)}</span>
+                  <span>
+                    アプリ全体：
+                    {storageInfo.usage === null ? "-" : formatByteSize(storageInfo.usage)}
+                  </span>
+                  <span>
+                    使用できる上限：
+                    {storageInfo.quota === null ? "-" : formatByteSize(storageInfo.quota)}
+                  </span>
+                </div>
+              ) : (
+                <p className="empty">保存容量を取得できませんでした。</p>
               )}
             </section>
 
@@ -1548,6 +2290,10 @@ export default function App() {
                 <li>本番運用する場合は、週1回以上のJSONバックアップを推奨します。</li>
                 <li>JSONバックアップファイルをGitHubや公開フォルダに入れないでください。</li>
                 <li>JSONは復元用、Markdownは閲覧・共有・ChatGPT連携用です。</li>
+                <li>
+                  写真の画像はJSONにもMarkdownにも含まれません。写真も残す場合は「写真つきZIPエクスポート」を使い、
+                  ZIPも公開しない場所に保管してください。
+                </li>
               </ul>
             </section>
 

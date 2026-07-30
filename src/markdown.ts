@@ -25,6 +25,10 @@ export function entryToMarkdown(entry: DiaryEntry): string {
   const sleepHours = hoursValue(entry.sleepHours);
   const napHours = hoursValue(entry.napHours) ?? 0;
   const totalSleepHours = sleepHours === null ? null : sleepHours + napHours;
+  // 写真がある日だけ枚数を書く。画像そのものはMarkdownに含めない（写真つきZIPバックアップ側で扱う）
+  const photoCount = (entry.photos ?? []).length;
+  const photoSection =
+    photoCount > 0 ? `### 写真\n\n- ${photoCount}枚（画像はMarkdownに含まれません）\n\n` : "";
 
   return `## ${formatDateJa(entry.date)}（${entry.weekday}）
 
@@ -36,7 +40,7 @@ ${valueOrBlank(entry.body)}
 
 ${valueOrBlank(entry.scratch)}
 
-### らくがきメモ履歴
+${photoSection}### らくがきメモ履歴
 
 ${scratchHistory}
 

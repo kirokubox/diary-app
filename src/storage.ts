@@ -1,10 +1,12 @@
 import { DEFAULT_SETTINGS } from "./constants";
-import type { AppSettings, DiaryEntry } from "./types";
+import type { AppSettings, DiaryEntry, DiaryPhoto, StoredPhoto } from "./types";
 
 const DB_NAME = "yuki-diary-app";
-const DB_VERSION = 1;
+// v1 → v2 で photos ストアを追加（既存の entries / settings は変更していない）
+const DB_VERSION = 2;
 const ENTRY_STORE = "entries";
 const SETTINGS_STORE = "settings";
+const PHOTO_STORE = "photos";
 const SETTINGS_KEY = "app";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -18,11 +20,28 @@ function parseStoredHours(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+// 写真メタデータの正規化。写真機能より前に保存された日記（photos が無い）も読めるようにする
+export function normalizePhotoMeta(value: unknown): DiaryPhoto[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Partial<DiaryPhoto> => !!item && typeof item === "object")
+    .filter((item) => typeof item.id === "string" && item.id)
+    .map((item) => ({
+      id: item.id as string,
+      width: typeof item.width === "number" && Number.isFinite(item.width) ? item.width : 0,
+      height: typeof item.height === "number" && Number.isFinite(item.height) ? item.height : 0,
+      byteSize: typeof item.byteSize === "number" && Number.isFinite(item.byteSize) ? item.byteSize : 0,
+      mimeType: typeof item.mimeType === "string" && item.mimeType ? item.mimeType : "image/jpeg",
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
+    }));
+}
+
 function normalizeEntry(entry: DiaryEntry): DiaryEntry {
   return {
     ...entry,
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: Array.isArray(entry.scratchItems) ? entry.scratchItems : [],
+    photos: normalizePhotoMeta(entry.photos),
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
     sleepHours: parseStoredHours(entry.sleepHours),
     napHours: parseStoredHours(entry.napHours),
@@ -51,9 +70,15 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
         db.createObjectStore(SETTINGS_STORE);
       }
+      if (!db.objectStoreNames.contains(PHOTO_STORE)) {
+        db.createObjectStore(PHOTO_STORE, { keyPath: "id" });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+    // 別タブで古いバージョンのアプリが開いていると、ストア追加が止まる
+    request.onblocked = () =>
+      reject(new Error("他のタブでこのアプリが開いているため、データベースを更新できません。他のタブを閉じてから開き直してください。"));
   });
   return dbPromise;
 }
@@ -96,6 +121,66 @@ export async function deleteEntry(id: string): Promise<void> {
 
 export async function clearEntries(): Promise<void> {
   await store<undefined>(ENTRY_STORE, "readwrite", (s) => s.clear());
+}
+
+export async function putPhoto(photo: StoredPhoto): Promise<void> {
+  await store<IDBValidKey>(PHOTO_STORE, "readwrite", (s) => s.put(photo));
+}
+
+export async function getPhoto(id: string): Promise<StoredPhoto | undefined> {
+  return store<StoredPhoto | undefined>(PHOTO_STORE, "readonly", (s) => s.get(id));
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  await store<undefined>(PHOTO_STORE, "readwrite", (s) => s.delete(id));
+}
+
+export async function getAllPhotos(): Promise<StoredPhoto[]> {
+  return store<StoredPhoto[]>(PHOTO_STORE, "readonly", (s) => s.getAll());
+}
+
+export async function getAllPhotoIds(): Promise<string[]> {
+  const keys = await store<IDBValidKey[]>(PHOTO_STORE, "readonly", (s) => s.getAllKeys());
+  return keys.filter((key): key is string => typeof key === "string");
+}
+
+export async function clearPhotos(): Promise<void> {
+  await store<undefined>(PHOTO_STORE, "readwrite", (s) => s.clear());
+}
+
+// 保存済み写真の枚数と合計サイズ。画像本体は読み出さずメタ情報だけ数える
+export async function getPhotoStorageStats(): Promise<{ count: number; byteSize: number }> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, "readonly");
+    const request = tx.objectStore(PHOTO_STORE).openCursor();
+    let count = 0;
+    let byteSize = 0;
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve({ count, byteSize });
+        return;
+      }
+      const value = cursor.value as StoredPhoto;
+      count += 1;
+      byteSize += typeof value.byteSize === "number" ? value.byteSize : (value.blob?.size ?? 0);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// どの日記からも参照されていない画像を削除する（写真の保存中にアプリを閉じた場合の置き去りを掃除する）。
+// 起動時、全日記を読み込んだあとに1回だけ呼ぶ
+export async function deleteUnreferencedPhotos(referencedIds: Set<string>): Promise<number> {
+  const ids = await getAllPhotoIds();
+  const orphans = ids.filter((id) => !referencedIds.has(id));
+  for (const id of orphans) {
+    await deletePhoto(id);
+  }
+  return orphans.length;
 }
 
 export async function getSettings(): Promise<AppSettings> {

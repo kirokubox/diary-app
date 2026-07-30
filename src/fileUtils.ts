@@ -1,5 +1,4 @@
-export function downloadText(filename: string, text: string, type: string): void {
-  const blob = new Blob([text], { type });
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -8,4 +7,8 @@ export function downloadText(filename: string, text: string, type: string): void
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadText(filename: string, text: string, type: string): void {
+  downloadBlob(filename, new Blob([text], { type }));
 }

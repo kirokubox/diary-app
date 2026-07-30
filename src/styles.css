@@ -406,6 +406,159 @@ main {
   padding: 32px 0;
 }
 
+/* 写真セクション（入力モードは画面最下部、閲覧モードは日記の下） */
+.photo-area {
+  display: grid;
+  gap: 10px;
+}
+
+.editor-screen .photo-area {
+  /* 下部固定ナビに「＋ 写真を追加」やサムネイルが隠れないよう余白を取る */
+  margin-bottom: 0;
+  padding-bottom: 28px;
+}
+
+.reading-section.photo-area h2 {
+  margin: 0;
+  color: #395664;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.photo-tile {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  padding: 0;
+  min-height: 0;
+  border-color: #d5e0e3;
+  background: #eef4f6;
+}
+
+.photo-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* 表示だけ正方形に中央トリミングする。元画像は切り取らない */
+  object-fit: cover;
+}
+
+.photo-tile:disabled {
+  opacity: 1;
+}
+
+.photo-tile-missing {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  color: #7d8f97;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.photo-add {
+  display: block;
+  justify-self: start;
+  border: 1px solid #6f93a4;
+  border-radius: 8px;
+  padding: 13px 18px;
+  background: #ffffff;
+  color: #395664;
+  font-size: 0.98rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.photo-add.busy {
+  border-color: #c8d6da;
+  color: #7d8f97;
+}
+
+.photo-add input {
+  display: none;
+}
+
+.photo-notice {
+  margin: 0;
+  border: 1px solid #d6c79a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fffdf5;
+  color: #6b5a24;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+  background: rgba(18, 25, 29, 0.96);
+}
+
+.photo-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.photo-viewer-count {
+  color: #eef4f6;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.photo-viewer-stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.photo-viewer-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  /* 元の縦横比のまま全体を表示する */
+  object-fit: contain;
+}
+
+.photo-viewer-missing {
+  margin: 0;
+  color: #dfe8ea;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.photo-viewer-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+}
+
+.storage-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .details-toggle {
   width: 100%;
   background: #ffffff;
@@ -910,6 +1063,11 @@ main {
 
   .import-summary {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .photo-add {
+    justify-self: stretch;
+    text-align: center;
   }
 }
 

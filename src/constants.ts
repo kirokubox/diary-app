@@ -54,6 +54,13 @@ export const DEFAULT_TAG_OPTIONS = [
 ];
 
 export const DEFAULT_TAGS = ["日記", "自分分析", "感情分析"];
+
+// 写真は1日6枚まで（3列グリッド2段に収まる枚数）
+export const PHOTO_MAX_COUNT = 6;
+// 追加時に長辺1600pxへ縮小して再エンコードする。元画像は切り取らず、縮小だけ行う
+export const PHOTO_MAX_EDGE = 1600;
+export const PHOTO_WEBP_QUALITY = 0.8;
+export const PHOTO_JPEG_QUALITY = 0.82;
 export const ENERGY_OPTIONS: Energy[] = ["", "高", "中", "低"];
 export const MOOD_OPTIONS: Mood[] = ["", "🙂", "😐", "☹️"];
 export const DAY_BOUNDARY_OPTIONS = ["00:00", "03:00", "04:00", "05:00", "06:00"] as const;

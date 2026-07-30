@@ -7,6 +7,29 @@ export interface ScratchItem {
   createdAt: string;
 }
 
+// 日記エントリが持つのは軽いメタデータだけ。画像本体は photos ストアに別置きする
+// （エントリは保存のたびに全件読み込まれるため、画像バイト列をその経路に乗せない）
+export interface DiaryPhoto {
+  id: string;
+  width: number;
+  height: number;
+  byteSize: number;
+  mimeType: string;
+  createdAt: string;
+}
+
+// IndexedDB の photos ストアに入る画像本体
+export interface StoredPhoto {
+  id: string;
+  date: string;
+  blob: Blob;
+  mimeType: string;
+  width: number;
+  height: number;
+  byteSize: number;
+  createdAt: string;
+}
+
 export interface DiaryEntry {
   id: string;
   date: string;
@@ -20,6 +43,7 @@ export interface DiaryEntry {
   body: string;
   scratch: string;
   scratchItems: ScratchItem[];
+  photos: DiaryPhoto[];
   createdAt: string;
   updatedAt: string;
 }

@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS } from "./constants";
+import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import type { AppSettings, DiaryEntry, DiaryPhoto, StoredPhoto } from "./types";
 
 const DB_NAME = "yuki-diary-app";
@@ -37,14 +38,23 @@ export function normalizePhotoMeta(value: unknown): DiaryPhoto[] {
 }
 
 function normalizeEntry(entry: DiaryEntry): DiaryEntry {
+  const napMinutes =
+    typeof entry.napMinutes === "number" && Number.isFinite(entry.napMinutes) && entry.napMinutes >= 0
+      ? Math.round(entry.napMinutes)
+      : undefined;
   return {
     ...entry,
     scratch: typeof entry.scratch === "string" ? entry.scratch : "",
     scratchItems: Array.isArray(entry.scratchItems) ? entry.scratchItems : [],
     photos: normalizePhotoMeta(entry.photos),
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
+    bedTime: typeof entry.bedTime === "string" && parseTimeMinutes(entry.bedTime) !== null ? entry.bedTime : "",
     sleepHours: parseStoredHours(entry.sleepHours),
     napHours: parseStoredHours(entry.napHours),
+    napMinutes: napMinutes ?? null,
+    everydayExpense: normalizeOptionalMoney(entry.everydayExpense),
+    satisfactionExpense: normalizeOptionalMoney(entry.satisfactionExpense),
+    regretExpense: normalizeOptionalMoney(entry.regretExpense),
   };
 }
 
@@ -55,6 +65,11 @@ function normalizeSettings(settings: Partial<AppSettings> | undefined): AppSetti
     dayBoundaryTime: ["00:00", "03:00", "04:00", "05:00", "06:00"].includes(settings?.dayBoundaryTime ?? "")
       ? settings?.dayBoundaryTime ?? DEFAULT_SETTINGS.dayBoundaryTime
       : DEFAULT_SETTINGS.dayBoundaryTime,
+    variableExpenseBudget: normalizeOptionalMoney(settings?.variableExpenseBudget) ?? DEFAULT_SETTINGS.variableExpenseBudget,
+    variableExpenseStartDay:
+      typeof settings?.variableExpenseStartDay === "number" && settings.variableExpenseStartDay >= 1 && settings.variableExpenseStartDay <= 31
+        ? Math.round(settings.variableExpenseStartDay)
+        : DEFAULT_SETTINGS.variableExpenseStartDay,
   };
 }
 

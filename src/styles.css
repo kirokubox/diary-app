@@ -87,6 +87,19 @@ p {
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
+.offline-badge {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 15;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #526b76;
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
 main {
   width: min(100%, 820px);
   margin: 0 auto;
@@ -279,6 +292,72 @@ main {
   width: 100%;
   min-height: 54px;
   font-size: 1rem;
+}
+
+.life-card {
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid #d5e0e3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(36, 50, 58, 0.04);
+}
+
+.life-card-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.life-card-toggle > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.life-card-toggle strong {
+  color: #395664;
+}
+
+.life-card-toggle small {
+  color: #5f7078;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.life-grid,
+.reading-life-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px 12px;
+}
+
+.life-grid {
+  border-top: 1px solid #e6eef0;
+  padding: 13px;
+}
+
+.life-total {
+  color: #52646c;
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.reading-life-grid {
+  border: 1px solid #d5e0e3;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+  color: #52646c;
+  font-size: 0.9rem;
+}
+
+.reading-life-grid strong {
+  color: #395664;
 }
 
 .body-panel {
@@ -647,6 +726,69 @@ main {
   color: #5f7078;
   font-size: 0.84rem;
   font-weight: 800;
+}
+
+.expense-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.expense-card-head h2 {
+  font-size: 1rem;
+}
+
+.expense-card-head p {
+  margin-top: 3px;
+  color: #5f7078;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.expense-card-head strong {
+  color: #395664;
+  font-size: 1.2rem;
+  text-align: right;
+}
+
+.expense-card-head .expense-over {
+  color: #9a403a;
+}
+
+.expense-legend {
+  display: flex;
+  gap: 12px;
+  color: #5f7078;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.expense-legend span::before {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border-radius: 2px;
+  content: "";
+}
+
+.expense-legend .everyday::before,
+.expense-bar-everyday { fill: #8c72aa; background: #8c72aa; }
+.expense-legend .satisfaction::before,
+.expense-bar-satisfaction { fill: #6f9fbd; background: #6f9fbd; }
+.expense-legend .regret::before,
+.expense-bar-regret { fill: #39474e; background: #39474e; }
+
+.expense-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 210px;
+}
+
+.expense-col-highlight {
+  fill: rgba(111, 147, 164, 0.14);
 }
 
 .sleep-card-head span {

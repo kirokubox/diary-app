@@ -1,34 +1,29 @@
-import { formatDateJa, nowIsoLocal, timeOnly } from "./dateUtils";
+import { addDays, formatDateJa, nowIsoLocal, timeOnly } from "./dateUtils";
+import { expenseBreakdown, formatDurationJa, getSleepMetrics } from "./lifeMetrics";
 import type { DiaryEntry } from "./types";
 
 function valueOrBlank(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 
-function hoursValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "未入力") return null;
-  const numeric = Number(trimmed.replace("時間", ""));
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function hoursLabel(value: unknown): string {
-  const hours = hoursValue(value);
-  return hours === null ? "" : `${hours.toFixed(1)}時間`;
-}
-
-export function entryToMarkdown(entry: DiaryEntry): string {
+export function entryToMarkdown(entry: DiaryEntry, previousEntry?: DiaryEntry, dayBoundaryTime = "05:00"): string {
   const scratchItems = [...(entry.scratchItems ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const scratchHistory = scratchItems.map((item) => `- ${timeOnly(item.createdAt)}　${item.text}`).join("\n");
-  const sleepHours = hoursValue(entry.sleepHours);
-  const napHours = hoursValue(entry.napHours) ?? 0;
-  const totalSleepHours = sleepHours === null ? null : sleepHours + napHours;
+  const sleep = getSleepMetrics(entry, previousEntry, dayBoundaryTime);
+  const expenses = expenseBreakdown(entry);
   // 写真がある日だけ枚数を書く。画像そのものはMarkdownに含めない（写真つきZIPバックアップ側で扱う）
   const photoCount = (entry.photos ?? []).length;
   const photoSection =
     photoCount > 0 ? `### 写真\n\n- ${photoCount}枚（画像はMarkdownに含まれません）\n\n` : "";
+
+  const expenseSection = expenses.total === null ? "" : `
+
+### 変動費
+
+- 日常費：${expenses.everyday === null ? "未入力" : `${expenses.everyday.toLocaleString("ja-JP")}円`}
+- 満足費：${expenses.satisfaction === null ? "未入力" : `${expenses.satisfaction.toLocaleString("ja-JP")}円`}
+- 反省費：${expenses.regret === null ? "未入力" : `${expenses.regret.toLocaleString("ja-JP")}円`}
+- 合計：${expenses.total.toLocaleString("ja-JP")}円`;
 
   return `## ${formatDateJa(entry.date)}（${entry.weekday}）
 
@@ -47,17 +42,19 @@ ${scratchHistory}
 ### 睡眠
 
 - 起床時間：${valueOrBlank(entry.wakeUpTime)}
-- 睡眠時間：${hoursLabel(entry.sleepHours)}
-- 仮眠時間：${hoursLabel(entry.napHours)}
-- 睡眠合計：${totalSleepHours === null ? "" : `${totalSleepHours.toFixed(1)}時間`}`;
+- 就寝時間：${valueOrBlank(entry.bedTime) || "未入力"}
+- 睡眠時間：${formatDurationJa(sleep.nightMinutes)}
+- 仮眠時間：${formatDurationJa(sleep.napMinutes)}
+- 睡眠合計：${formatDurationJa(sleep.totalMinutes)}${expenseSection}`;
 }
 
-export function entriesToMarkdown(entries: DiaryEntry[]): string {
+export function entriesToMarkdown(entries: DiaryEntry[], dayBoundaryTime = "05:00"): string {
+  const byDate = new Map(entries.map((entry) => [entry.date, entry]));
   return `# Web日記エクスポート
 出力日：${nowIsoLocal().slice(0, 10)}
 件数：${entries.length}件
 
 ---
 
-${entries.map(entryToMarkdown).join("\n\n---\n\n")}`;
+${entries.map((entry) => entryToMarkdown(entry, byDate.get(addDays(entry.date, -1)), dayBoundaryTime)).join("\n\n---\n\n")}`;
 }

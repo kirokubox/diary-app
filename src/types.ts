@@ -37,8 +37,13 @@ export interface DiaryEntry {
   energy: Energy;
   mood: Mood;
   wakeUpTime: string;
+  bedTime?: string;
   sleepHours: number | null;
   napHours: number | null;
+  napMinutes?: number | null;
+  everydayExpense?: number | null;
+  satisfactionExpense?: number | null;
+  regretExpense?: number | null;
   tags: string[];
   body: string;
   scratch: string;
@@ -53,6 +58,8 @@ export interface AppSettings {
   tagOptions: string[];
   version: string;
   dayBoundaryTime: string;
+  variableExpenseBudget: number;
+  variableExpenseStartDay: number;
 }
 
 export interface DiaryExport {

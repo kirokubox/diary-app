@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">季節日記</string>
+    <string name="widget_description">睡眠平均・今期残額・前日変動費</string>
+</resources>

@@ -164,9 +164,3 @@ export function buildSearchSnippet(entry: DiaryEntry, query: string): SearchSnip
   }
   return null;
 }
-
-// 推定就寝 = 起床 − 睡眠時間(仮眠は含めない)。中途覚醒までは分からない目安値
-export function estimateBedTime(wakeTime: number | null, sleepHours: number | null): number | null {
-  if (wakeTime === null || sleepHours === null) return null;
-  return (((wakeTime - sleepHours) % 24) + 24) % 24;
-}

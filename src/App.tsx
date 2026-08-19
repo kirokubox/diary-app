@@ -22,8 +22,23 @@ import {
 } from "./dateUtils";
 import { downloadBlob, downloadText } from "./fileUtils";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
+import {
+  buildSleepMetricsMap,
+  buildWidgetSnapshot,
+  expenseBreakdown,
+  formatDurationJa,
+  formatHoursCompact,
+  formatMoneyCompact,
+  getExpensePeriod,
+  getSleepMetrics,
+  normalizeOptionalMoney,
+  parseTimeMinutes,
+  periodExpenseTotal,
+  recentSleepAverageMinutes,
+} from "./lifeMetrics";
+import type { SleepMetrics } from "./lifeMetrics";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
-import { buildEntrySummary, buildSearchSnippet, classifyBodyLines, estimateBedTime } from "./summary";
+import { buildEntrySummary, buildSearchSnippet, classifyBodyLines } from "./summary";
 import type { SearchSnippet } from "./summary";
 import {
   clearEntries,
@@ -49,16 +64,8 @@ import { createZipBlob, readZipEntries } from "./zip";
 import type { ZipInputFile } from "./zip";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const WAKE_UP_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
-  const hour = String(Math.floor(index / 2)).padStart(2, "0");
-  const minute = index % 2 === 0 ? "00" : "30";
-  return `${hour}:${minute}`;
-});
 const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
 const NAP_HOUR_OPTIONS = Array.from({ length: 13 }, (_, index) => index * 0.5);
-const WAKE_UP_TIME_SELECT_OPTIONS = WAKE_UP_TIME_OPTIONS.flatMap((time) => (time === "05:30" ? [time, ""] : [time]));
-const SLEEP_HOUR_SELECT_OPTIONS = SLEEP_HOUR_OPTIONS.flatMap((hours) => (hours === 4.5 ? [hours, null] : [hours]));
-const NAP_HOUR_SELECT_OPTIONS: Array<number | null> = [null, ...NAP_HOUR_OPTIONS];
 
 type SleepChartPoint = {
   date: string;
@@ -67,6 +74,7 @@ type SleepChartPoint = {
   napHours: number;
   totalHours: number | null;
   wakeTime: number | null;
+  bedTime: string | null;
 };
 
 type ImportIssue = {
@@ -100,6 +108,7 @@ type ImportPreview = {
   errors: ImportIssue[];
   warnings: ImportIssue[];
   settingsFound: boolean;
+  importedSettings: AppSettings | null;
   photoMetaCount: number;
   zipPhotos: ZipPhotoPayload[];
 };
@@ -125,8 +134,13 @@ function makeEntry(date: string, settings: AppSettings): DiaryEntry {
     energy: "",
     mood: "",
     wakeUpTime: "",
+    bedTime: "",
     sleepHours: null,
     napHours: null,
+    napMinutes: null,
+    everydayExpense: null,
+    satisfactionExpense: null,
+    regretExpense: null,
     tags: [],
     body: settings.template,
     scratch: "",
@@ -172,16 +186,12 @@ function formatShortDate(date: string): string {
   return `${Number(month)}/${Number(day)}`;
 }
 
-function formatHours(value: number | null | undefined): string {
-  return typeof value === "number" ? `${value.toFixed(1)}時間` : "未入力";
-}
-
-function rhythmMeta(entry: DiaryEntry): string[] {
-  const napMeta = sleepHoursMeta(entry.napHours);
+function rhythmMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
+  const metrics = sleep ?? getSleepMetrics(entry, undefined, "05:00");
   return [
     entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
-    sleepHoursMeta(entry.sleepHours) ? `睡眠 ${sleepHoursMeta(entry.sleepHours)}` : "",
-    napMeta ? `仮眠 ${napMeta}` : "",
+    metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
+    metrics.napMinutes !== null ? `仮眠 ${formatHoursCompact(metrics.napMinutes)}` : "",
   ].filter(Boolean);
 }
 
@@ -224,8 +234,16 @@ function normalizeImportedEntry(entry: DiaryEntry): DiaryEntry {
     scratchItems: normalizeScratchItems(entry.scratchItems),
     photos: normalizePhotoMeta(entry.photos),
     wakeUpTime: typeof entry.wakeUpTime === "string" ? entry.wakeUpTime : "",
+    bedTime: typeof entry.bedTime === "string" && parseTimeMinutes(entry.bedTime) !== null ? entry.bedTime : "",
     sleepHours: parseHours(entry.sleepHours),
     napHours: parseHours(entry.napHours),
+    napMinutes:
+      typeof entry.napMinutes === "number" && Number.isFinite(entry.napMinutes) && entry.napMinutes >= 0
+        ? Math.round(entry.napMinutes)
+        : null,
+    everydayExpense: normalizeOptionalMoney(entry.everydayExpense),
+    satisfactionExpense: normalizeOptionalMoney(entry.satisfactionExpense),
+    regretExpense: normalizeOptionalMoney(entry.regretExpense),
   };
 }
 
@@ -277,8 +295,14 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
 
   if ("wakeUpTime" in item && typeof item.wakeUpTime !== "string") {
     errors.push({ index, date: dateForIssue, message: "wakeUpTime は文字列にしてください。" });
-  } else if (typeof item.wakeUpTime === "string" && item.wakeUpTime && !WAKE_UP_TIME_OPTIONS.includes(item.wakeUpTime)) {
-    errors.push({ index, date: dateForIssue, message: "wakeUpTime は30分刻みの HH:mm 形式にしてください。" });
+  } else if (typeof item.wakeUpTime === "string" && item.wakeUpTime && parseTimeMinutes(item.wakeUpTime) === null) {
+    errors.push({ index, date: dateForIssue, message: "wakeUpTime は HH:mm 形式にしてください。" });
+  }
+
+  if ("bedTime" in item && typeof item.bedTime !== "string") {
+    errors.push({ index, date: dateForIssue, message: "bedTime は文字列にしてください。" });
+  } else if (typeof item.bedTime === "string" && item.bedTime && parseTimeMinutes(item.bedTime) === null) {
+    errors.push({ index, date: dateForIssue, message: "bedTime は HH:mm 形式にしてください。" });
   }
 
   const rawSleepHours = (item as { sleepHours?: unknown }).sleepHours;
@@ -307,6 +331,20 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
   } else if (typeof importedNapHours === "number" && !NAP_HOUR_OPTIONS.includes(importedNapHours)) {
     errors.push({ index, date: dateForIssue, message: "napHours は0〜6.0の0.5時間刻みにしてください。" });
   }
+
+  if ("napMinutes" in item && item.napMinutes !== null) {
+    if (typeof item.napMinutes !== "number" || !Number.isFinite(item.napMinutes) || item.napMinutes < 0 || item.napMinutes >= 24 * 60) {
+      errors.push({ index, date: dateForIssue, message: "napMinutes は0〜1439の分数または null にしてください。" });
+    }
+  }
+
+  (["everydayExpense", "satisfactionExpense", "regretExpense"] as const).forEach((key) => {
+    if (key in item && item[key] !== null) {
+      if (typeof item[key] !== "number" || !Number.isFinite(item[key]) || item[key]! < 0) {
+        errors.push({ index, date: dateForIssue, message: `${key} は0以上の数値または null にしてください。` });
+      }
+    }
+  });
 
   if (!Array.isArray(item.tags) || !item.tags.every((tag) => typeof tag === "string")) {
     errors.push({ index, date: dateForIssue, message: "tags は文字列の配列にしてください。" });
@@ -396,20 +434,25 @@ function validateImportedEntry(value: unknown, index: number): { entry?: DiaryEn
   };
 }
 
-function buildSleepChartPoints(entries: DiaryEntry[]): SleepChartPoint[] {
+function buildSleepChartPoints(entries: DiaryEntry[], dayBoundaryTime: string): SleepChartPoint[] {
+  const metricsByDate = buildSleepMetricsMap(entries, dayBoundaryTime);
   return [...entries]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-14)
     .map((entry) => {
-      const sleepHours = parseHours(entry.sleepHours);
-      const napHours = parseHours(entry.napHours) ?? 0;
+      const metrics = metricsByDate.get(entry.date)!;
+      const sleepHours = metrics.nightMinutes === null ? null : metrics.nightMinutes / 60;
+      const napHours = (metrics.napMinutes ?? 0) / 60;
       return {
         date: entry.date,
         label: formatShortDate(entry.date),
         sleepHours,
         napHours,
-        totalHours: sleepHours === null ? null : sleepHours + napHours,
+        totalHours: metrics.totalMinutes === null ? null : metrics.totalMinutes / 60,
         wakeTime: parseWakeTime(entry.wakeUpTime),
+        bedTime: metrics.resolvedPreviousBedAt
+          ? `${String(metrics.resolvedPreviousBedAt.getHours()).padStart(2, "0")}:${String(metrics.resolvedPreviousBedAt.getMinutes()).padStart(2, "0")}`
+          : null,
       };
     });
 }
@@ -423,30 +466,20 @@ function sleepDetailDateLabel(date: string): string {
   return `${Number(month)}月${Number(day)}日（${weekdayOf(date)}）`;
 }
 
-function recentSleepAverage(entries: DiaryEntry[]): string {
-  const targets = [...entries]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-7)
-    .map((entry) => {
-      const sleepHours = parseHours(entry.sleepHours);
-      if (sleepHours === null) return null;
-      return sleepHours + (parseHours(entry.napHours) ?? 0);
-    })
-    .filter((value): value is number => typeof value === "number");
-  if (targets.length === 0) return "-";
-  const average = targets.reduce((sum, value) => sum + value, 0) / targets.length;
-  return `${average.toFixed(1)}h`;
-}
-
 function RecentSleepCard({
   entries,
+  dayBoundaryTime,
   onOpenDate,
 }: {
   entries: DiaryEntry[];
+  dayBoundaryTime: string;
   onOpenDate: (date: string) => void | Promise<void>;
 }) {
-  const chartPoints = useMemo(() => buildSleepChartPoints(entries), [entries]);
-  const average = useMemo(() => recentSleepAverage(entries), [entries]);
+  const chartPoints = useMemo(() => buildSleepChartPoints(entries, dayBoundaryTime), [entries, dayBoundaryTime]);
+  const average = useMemo(
+    () => formatHoursCompact(recentSleepAverageMinutes(entries, dayBoundaryTime)),
+    [entries, dayBoundaryTime],
+  );
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   // 14件の窓から外れた日付は find で見つからず、詳細も自然に閉じる
   const selectedPoint = chartPoints.find((point) => point.date === selectedDate) ?? null;
@@ -605,7 +638,7 @@ function RecentSleepCard({
         <div className="sleep-detail">
           <p className="sleep-detail-date">{sleepDetailDateLabel(selectedPoint.date)}</p>
           <p className="sleep-detail-meta">
-            推定就寝 {formatChartTime(estimateBedTime(selectedPoint.wakeTime, selectedPoint.sleepHours))}　起床{" "}
+            就寝 {selectedPoint.bedTime ?? "-"}　起床{" "}
             {formatChartTime(selectedPoint.wakeTime)}　睡眠 {sleepHoursMeta(selectedPoint.sleepHours) || "-"}　仮眠{" "}
             {selectedPoint.napHours.toFixed(1)}h
           </p>
@@ -615,6 +648,99 @@ function RecentSleepCard({
         </div>
       )}
       {drawablePoints.length < 2 && <p className="subtle">記録が増えると、最近の眠りの流れが見えやすくなります。</p>}
+    </section>
+  );
+}
+
+function VariableExpenseCard({
+  entries,
+  settings,
+  today,
+}: {
+  entries: DiaryEntry[];
+  settings: AppSettings;
+  today: string;
+}) {
+  const period = useMemo(
+    () => getExpensePeriod(today, settings.variableExpenseStartDay),
+    [today, settings.variableExpenseStartDay],
+  );
+  const points = useMemo(() => {
+    const byDate = new Map(entries.map((entry) => [entry.date, entry]));
+    const result: Array<{ date: string; everyday: number; satisfaction: number; regret: number; total: number | null }> = [];
+    const lastDate = today < period.end ? today : period.end;
+    for (let date = period.start; date <= lastDate; date = addDays(date, 1)) {
+      const entry = byDate.get(date);
+      const expense = entry ? expenseBreakdown(entry) : null;
+      result.push({
+        date,
+        everyday: expense?.everyday ?? 0,
+        satisfaction: expense?.satisfaction ?? 0,
+        regret: expense?.regret ?? 0,
+        total: expense?.total ?? null,
+      });
+    }
+    return result;
+  }, [entries, period, today]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const selected = points.find((point) => point.date === selectedDate) ?? null;
+  const spent = useMemo(() => periodExpenseTotal(entries, period, today), [entries, period, today]);
+  const remaining = settings.variableExpenseBudget - spent;
+  const max = Math.max(1, ...points.map((point) => point.total ?? 0));
+  const width = 640;
+  const height = 190;
+  const padding = { top: 12, right: 12, bottom: 32, left: 12 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const step = plotWidth / Math.max(points.length, 1);
+  const barWidth = Math.max(5, Math.min(18, step - 3));
+
+  return (
+    <section className="sleep-card expense-card">
+      <div className="expense-card-head">
+        <div>
+          <h2>今期の変動費</h2>
+          <p>{formatShortDate(period.start)}〜{formatShortDate(period.end)}</p>
+        </div>
+        <strong className={remaining < 0 ? "expense-over" : ""}>
+          {remaining >= 0 ? `残り ${remaining.toLocaleString("ja-JP")}円` : `超過 ${Math.abs(remaining).toLocaleString("ja-JP")}円`}
+        </strong>
+      </div>
+      <div className="expense-legend" aria-label="変動費グラフの色分け">
+        <span className="everyday">日常</span><span className="satisfaction">満足</span><span className="regret">反省</span>
+      </div>
+      <div className="sleep-chart-wrap">
+        <svg className="expense-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="今期の日別変動費グラフ">
+          <rect className="sleep-chart-bg" width={width} height={height} rx="8" />
+          {points.map((point, index) => {
+            const x = padding.left + index * step + step / 2;
+            const base = padding.top + plotHeight;
+            const everydayHeight = (point.everyday / max) * plotHeight;
+            const satisfactionHeight = (point.satisfaction / max) * plotHeight;
+            const regretHeight = (point.regret / max) * plotHeight;
+            const showLabel = index === 0 || index === points.length - 1 || index % 5 === 0;
+            return (
+              <g key={point.date}>
+                {selectedDate === point.date && <rect className="expense-col-highlight" x={x - step / 2} y={padding.top} width={step} height={plotHeight} />}
+                <rect className="expense-bar-everyday" x={x - barWidth / 2} y={base - everydayHeight} width={barWidth} height={everydayHeight} rx="2" />
+                <rect className="expense-bar-satisfaction" x={x - barWidth / 2} y={base - everydayHeight - satisfactionHeight} width={barWidth} height={satisfactionHeight} rx="2" />
+                <rect className="expense-bar-regret" x={x - barWidth / 2} y={base - everydayHeight - satisfactionHeight - regretHeight} width={barWidth} height={regretHeight} rx="2" />
+                {showLabel && <text className="sleep-axis date" x={x} y={height - 10}>{formatShortDate(point.date)}</text>}
+                <rect className="sleep-hit" x={x - step / 2} y={padding.top} width={step} height={plotHeight + padding.bottom - 4} onClick={() => setSelectedDate(selectedDate === point.date ? null : point.date)} />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {selected && (
+        <div className="sleep-detail">
+          <p className="sleep-detail-date">{sleepDetailDateLabel(selected.date)}</p>
+          <p className="sleep-detail-meta">
+            日常 {formatMoneyCompact(selected.total === null ? null : selected.everyday)}　満足 {formatMoneyCompact(selected.total === null ? null : selected.satisfaction)}　反省 {formatMoneyCompact(selected.total === null ? null : selected.regret)}　合計 {formatMoneyCompact(selected.total)}
+          </p>
+        </div>
+      )}
+      {points.every((point) => point.total === null) && <p className="empty">今期の変動費はまだ入力されていません。</p>}
     </section>
   );
 }
@@ -857,15 +983,17 @@ function PhotoSection({
 
 function CompactEntryCard({
   entry,
+  sleep,
   snippet,
   onOpen,
 }: {
   entry: DiaryEntry;
+  sleep?: SleepMetrics;
   snippet?: SearchSnippet | null;
   onOpen: (date: string) => void | Promise<void>;
 }) {
   // 写真がある日だけカメラアイコンと枚数を足す（睡眠情報と同じ1行に収め、カードを高くしない）
-  const rhythmItems = [...rhythmMeta(entry), entry.photos.length > 0 ? `📷 ${entry.photos.length}` : ""].filter(
+  const rhythmItems = [...rhythmMeta(entry, sleep), entry.photos.length > 0 ? `📷 ${entry.photos.length}` : ""].filter(
     Boolean,
   );
   const summary = snippet ? "" : buildEntrySummary(entry);
@@ -891,17 +1019,19 @@ function CompactEntryCard({
 function MemoryCard({
   label,
   entry,
+  sleep,
   onOpen,
 }: {
   label: string;
   entry: DiaryEntry | null;
+  sleep?: SleepMetrics;
   onOpen: (date: string) => void | Promise<void>;
 }) {
   return (
     <section className="memory-card">
       <p className="memory-label">{label}</p>
       {entry ? (
-        <CompactEntryCard entry={entry} onOpen={onOpen} />
+        <CompactEntryCard entry={entry} sleep={sleep} onOpen={onOpen} />
       ) : (
         <p className="memory-empty">記録なし</p>
       )}
@@ -911,18 +1041,21 @@ function MemoryCard({
 
 function ReadingView({
   entry,
+  sleep,
   exists,
   onMoveDate,
   onStartEditing,
   onExportMarkdown,
 }: {
   entry: DiaryEntry;
+  sleep: SleepMetrics;
   exists: boolean;
   onMoveDate: (date: string) => void | Promise<void>;
   onStartEditing: () => void;
   onExportMarkdown: () => void;
 }) {
-  const rhythmItems = rhythmMeta(entry);
+  const rhythmItems = rhythmMeta(entry, sleep);
+  const expenses = expenseBreakdown(entry);
   const scratchText = entry.scratch.trim();
   const sortedScratchItems = [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -961,6 +1094,18 @@ function ReadingView({
       ) : (
         <>
           {rhythmItems.length > 0 && <p className="reading-meta">{rhythmItems.join("　")}</p>}
+
+          {(sleep.totalMinutes !== null || entry.wakeUpTime || entry.bedTime || sleep.napMinutes !== null || expenses.total !== null) && (
+            <section className="reading-section reading-life">
+              <h2>生活</h2>
+              <div className="reading-life-grid">
+                <span>起床 {entry.wakeUpTime || "−"}</span><span>日常 {formatMoneyCompact(expenses.everyday)}</span>
+                <span>就寝 {entry.bedTime || "−"}</span><span>満足 {formatMoneyCompact(expenses.satisfaction)}</span>
+                <span>仮眠 {formatDurationJa(sleep.napMinutes)}</span><span>反省 {formatMoneyCompact(expenses.regret)}</span>
+                <strong>睡眠合計 {formatDurationJa(sleep.totalMinutes)}</strong><strong>合計 {formatMoneyCompact(expenses.total)}</strong>
+              </div>
+            </section>
+          )}
 
           <section className="reading-section">
             <h2>振り返り</h2>
@@ -1023,6 +1168,7 @@ function ReadingView({
 
 function Editor({
   entry,
+  sleep,
   saveState,
   onChange,
   onManualSave,
@@ -1037,6 +1183,7 @@ function Editor({
   onDeletePhoto,
 }: {
   entry: DiaryEntry;
+  sleep: SleepMetrics;
   saveState: SaveState;
   onChange: (entry: DiaryEntry) => void;
   onManualSave: () => void;
@@ -1051,11 +1198,13 @@ function Editor({
   onDeletePhoto: (photo: DiaryPhoto) => Promise<boolean>;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
+  const [lifeExpanded, setLifeExpanded] = useState(false);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
+    setLifeExpanded(false);
     setFreeScratchExpanded(false);
     setScratchDraft("");
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
@@ -1070,6 +1219,18 @@ function Editor({
     if (!text) return;
     onChange({ ...entry, scratchItems: [makeScratchItem(text), ...entry.scratchItems] });
     setScratchDraft("");
+  }
+
+  const expenses = expenseBreakdown(entry);
+  const hasLifeInput = Boolean(
+    sleep.totalMinutes !== null || entry.wakeUpTime || entry.bedTime || entry.napMinutes !== null || expenses.total !== null,
+  );
+  const napInput = entry.napMinutes === null || entry.napMinutes === undefined
+    ? ""
+    : `${String(Math.floor(entry.napMinutes / 60)).padStart(2, "0")}:${String(entry.napMinutes % 60).padStart(2, "0")}`;
+
+  function updateMoney(key: "everydayExpense" | "satisfactionExpense" | "regretExpense", value: string) {
+    onChange({ ...entry, [key]: value === "" ? null : normalizeOptionalMoney(value) });
   }
 
   return (
@@ -1100,55 +1261,32 @@ function Editor({
         </button>
       </div>
 
+      <section className="life-card">
+        <button className="life-card-toggle" type="button" onClick={() => setLifeExpanded((expanded) => !expanded)} aria-expanded={lifeExpanded}>
+          <span><strong>生活</strong><small>{hasLifeInput ? `睡眠 ${formatHoursCompact(sleep.totalMinutes)}・お金 ${formatMoneyCompact(expenses.total)}` : "睡眠・お金を書く"}</small></span>
+          <span aria-hidden="true">{lifeExpanded ? "−" : "＋"}</span>
+        </button>
+        {lifeExpanded && (
+          <div className="life-grid">
+            <label>起床時間<input type="time" step="60" value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })} /></label>
+            <label>日常費<input inputMode="numeric" min="0" step="1" type="number" value={entry.everydayExpense ?? ""} onChange={(event) => updateMoney("everydayExpense", event.target.value)} placeholder="円" /></label>
+            <label>就寝時間<input type="time" step="60" value={entry.bedTime ?? ""} onChange={(event) => onChange({ ...entry, bedTime: event.target.value })} /></label>
+            <label>満足費<input inputMode="numeric" min="0" step="1" type="number" value={entry.satisfactionExpense ?? ""} onChange={(event) => updateMoney("satisfactionExpense", event.target.value)} placeholder="円" /></label>
+            <label>仮眠時間<input type="time" step="60" value={napInput} onChange={(event) => onChange({ ...entry, napMinutes: event.target.value === "" ? null : parseTimeMinutes(event.target.value) })} /></label>
+            <label>反省費<input inputMode="numeric" min="0" step="1" type="number" value={entry.regretExpense ?? ""} onChange={(event) => updateMoney("regretExpense", event.target.value)} placeholder="円" /></label>
+            <p className="life-total">睡眠合計 {formatDurationJa(sleep.totalMinutes)}</p>
+            <p className="life-total">お金合計 {formatMoneyCompact(expenses.total)}</p>
+          </div>
+        )}
+      </section>
+
       <section className="field-group body-area">
-        <label>振り返りを書く</label>
+        <label>日記・振り返りを書く</label>
         <button className="body-toggle primary" type="button" onClick={() => setBodyExpanded((expanded) => !expanded)}>
-          {bodyExpanded ? "振り返りを閉じる" : "振り返りを書く"}
+          {bodyExpanded ? "日記・振り返りを閉じる" : "日記・振り返りを書く"}
         </button>
         {bodyExpanded && (
           <div className="body-panel">
-            <div className="rhythm-grid">
-              <label>
-                起床時間
-                <select value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })}>
-                  {WAKE_UP_TIME_SELECT_OPTIONS.map((time) => (
-                    <option key={time || "none"} value={time}>
-                      {time || "未入力"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                睡眠時間
-                <select
-                  value={entry.sleepHours ?? ""}
-                  onChange={(event) =>
-                    onChange({ ...entry, sleepHours: event.target.value ? Number(event.target.value) : null })
-                  }
-                >
-                  {SLEEP_HOUR_SELECT_OPTIONS.map((hours) => (
-                    <option key={hours ?? "none"} value={hours ?? ""}>
-                      {typeof hours === "number" ? `${hours.toFixed(1)}時間` : "未入力"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                仮眠時間
-                <select
-                  value={entry.napHours ?? ""}
-                  onChange={(event) =>
-                    onChange({ ...entry, napHours: event.target.value ? Number(event.target.value) : null })
-                  }
-                >
-                  {NAP_HOUR_SELECT_OPTIONS.map((hours) => (
-                    <option key={hours ?? "none"} value={hours ?? ""}>
-                      {typeof hours === "number" ? `${hours.toFixed(1)}時間` : "未入力"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
             <label>
               振り返り
               <textarea
@@ -1175,7 +1313,7 @@ function Editor({
       </section>
 
       <section className="field-group scratch-area">
-        <label>今日のらくがき帳</label>
+        <label>らくがき帳</label>
         <textarea
           className="scratch-draft"
           value={scratchDraft}
@@ -1272,6 +1410,17 @@ export default function App() {
   const [bodyOpenVersion, setBodyOpenVersion] = useState(0);
   const [entryViewMode, setEntryViewMode] = useState<"read" | "edit">("edit");
   const [scratchManageDate, setScratchManageDate] = useState("");
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   async function refreshEntries() {
     setEntries(await getAllEntries());
@@ -1368,8 +1517,16 @@ export default function App() {
       scratchItems: normalizeScratchItems(target.scratchItems),
       photos: normalizePhotoMeta(target.photos),
       wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
+      bedTime: typeof target.bedTime === "string" && parseTimeMinutes(target.bedTime) !== null ? target.bedTime : "",
       sleepHours: parseHours(target.sleepHours),
       napHours: parseHours(target.napHours),
+      napMinutes:
+        typeof target.napMinutes === "number" && Number.isFinite(target.napMinutes) && target.napMinutes >= 0
+          ? Math.round(target.napMinutes)
+          : null,
+      everydayExpense: normalizeOptionalMoney(target.everydayExpense),
+      satisfactionExpense: normalizeOptionalMoney(target.satisfactionExpense),
+      regretExpense: normalizeOptionalMoney(target.regretExpense),
     };
     await saveEntry(saved);
     setEntry(saved);
@@ -1520,14 +1677,20 @@ export default function App() {
   async function exportEntryMarkdown() {
     if (!entry) return;
     await persistEntry(entry);
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }), "text/markdown");
+    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
+    downloadText(
+      `diary-${entry.date}.md`,
+      entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }, previous, settings.dayBoundaryTime),
+      "text/markdown",
+    );
     notify("Markdownをエクスポートしました");
   }
 
   // 閲覧モード用。保存を伴わない(未作成日にテンプレだけの日記を作らない)
   function exportEntryMarkdownWithoutSave() {
     if (!entry) return;
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry), "text/markdown");
+    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry, previous, settings.dayBoundaryTime), "text/markdown");
     notify("Markdownをエクスポートしました");
   }
 
@@ -1585,6 +1748,15 @@ export default function App() {
 
   // entries は日付降順なので先頭7件が直近
   const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
+  const sleepMetricsByDate = useMemo(
+    () => buildSleepMetricsMap(entries, settings.dayBoundaryTime),
+    [entries, settings.dayBoundaryTime],
+  );
+  const activeSleepMetrics = useMemo(() => {
+    if (!entry) return null;
+    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
+    return getSleepMetrics(entry, previous, settings.dayBoundaryTime);
+  }, [entry, entries, settings.dayBoundaryTime]);
 
   // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
   const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
@@ -1633,7 +1805,7 @@ export default function App() {
   }
 
   function exportMarkdown() {
-    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries), "text/markdown");
+    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries, settings.dayBoundaryTime), "text/markdown");
   }
 
   // 通常JSONと写真つきZIP内のJSONで共通に使う検証。写真の画像そのものは扱わない
@@ -1682,8 +1854,21 @@ export default function App() {
     });
 
     const settingsFound = "settings" in data;
+    const rawSettings = settingsFound ? (data as { settings?: unknown }).settings : null;
+    const importedSettings = rawSettings && typeof rawSettings === "object"
+      ? {
+          ...DEFAULT_SETTINGS,
+          ...(rawSettings as Partial<AppSettings>),
+          variableExpenseBudget:
+            normalizeOptionalMoney((rawSettings as Partial<AppSettings>).variableExpenseBudget) ?? DEFAULT_SETTINGS.variableExpenseBudget,
+          variableExpenseStartDay:
+            typeof (rawSettings as Partial<AppSettings>).variableExpenseStartDay === "number"
+              ? Math.min(31, Math.max(1, Math.round((rawSettings as Partial<AppSettings>).variableExpenseStartDay!)))
+              : DEFAULT_SETTINGS.variableExpenseStartDay,
+        }
+      : null;
     if (settingsFound) {
-      warnings.push({ message: "settings が含まれていますが、現在の設定は上書きしません。" });
+      warnings.push({ message: "settings が含まれています。実行するとテンプレート・生活日付・変動費設定も復元します。" });
     }
 
     const photoMetaCount = addableEntries.reduce((sum, item) => sum + item.photos.length, 0);
@@ -1696,6 +1881,7 @@ export default function App() {
       errors,
       warnings,
       settingsFound,
+      importedSettings,
       photoMetaCount,
       zipPhotos: [],
     };
@@ -1849,6 +2035,11 @@ export default function App() {
       for (const item of importPreview.addableEntries) {
         await saveEntry(item);
       }
+      if (importPreview.importedSettings) {
+        await saveSettings(importPreview.importedSettings);
+        setSettings(importPreview.importedSettings);
+        setTemplateDraft(importPreview.importedSettings.template);
+      }
       await refreshEntries();
 
       // 本文を追加したあと、日記から参照されている写真だけを復元する。
@@ -1907,6 +2098,25 @@ export default function App() {
     notify("生活日付設定を保存しました");
   }
 
+  async function saveExpenseSettings(patch: Partial<Pick<AppSettings, "variableExpenseBudget" | "variableExpenseStartDay">>) {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    await saveSettings(next);
+    notify("変動費設定を保存しました");
+  }
+
+  function syncAndroidWidget() {
+    const today = getLifeDateKey(new Date(), settings.dayBoundaryTime);
+    const snapshot = buildWidgetSnapshot(entries, settings, today);
+    const params = new URLSearchParams({
+      sleep: snapshot.averageSleepText,
+      remaining: snapshot.remainingText,
+      yesterday: snapshot.yesterdayExpenseText,
+      updated: snapshot.updatedAt,
+    });
+    window.location.href = `seasonaldiary://widget/update?${params.toString()}`;
+  }
+
   async function resetTemplate() {
     const next = { ...settings, template: DEFAULT_TEMPLATE };
     setSettings(next);
@@ -1931,11 +2141,13 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {!isOnline && <div className="offline-badge">オフライン</div>}
       <main>
-        {tab === "today" && entry && (
+        {tab === "today" && entry && activeSleepMetrics && (
           entryViewMode === "read" ? (
             <ReadingView
               entry={entry}
+              sleep={activeSleepMetrics}
               exists={entryExists}
               onMoveDate={openDateForReading}
               onStartEditing={startEditing}
@@ -1944,6 +2156,7 @@ export default function App() {
           ) : (
             <Editor
               entry={entry}
+              sleep={activeSleepMetrics}
               saveState={saveState}
               onChange={updateEntry}
               onManualSave={() => void persistEntry(entry)}
@@ -1969,7 +2182,8 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
-            <RecentSleepCard entries={entries} onOpenDate={openDateForReading} />
+            <RecentSleepCard entries={entries} dayBoundaryTime={settings.dayBoundaryTime} onOpenDate={openDateForReading} />
+            <VariableExpenseCard entries={entries} settings={settings} today={getLifeDateKey(new Date(), settings.dayBoundaryTime)} />
             <section className="list-section">
               <h2 className="list-section-title">最近の日記</h2>
               {recentEntries.length === 0 ? (
@@ -1977,7 +2191,7 @@ export default function App() {
               ) : (
                 <div className="entry-list">
                   {recentEntries.map((item) => (
-                    <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
+                    <CompactEntryCard entry={item} sleep={sleepMetricsByDate.get(item.date)} key={item.id} onOpen={openDateForReading} />
                   ))}
                 </div>
               )}
@@ -1985,17 +2199,20 @@ export default function App() {
             <MemoryCard
               label={`1か月前${memoryCards.monthAgoDate ? `（${formatShortDate(memoryCards.monthAgoDate)}）` : ""}`}
               entry={memoryCards.monthAgoEntry}
+              sleep={memoryCards.monthAgoEntry ? sleepMetricsByDate.get(memoryCards.monthAgoEntry.date) : undefined}
               onOpen={openDateForReading}
             />
             <MemoryCard
               label={`1年前${memoryCards.yearAgoDate ? `（${formatShortDate(memoryCards.yearAgoDate)}）` : ""}`}
               entry={memoryCards.yearAgoEntry}
+              sleep={memoryCards.yearAgoEntry ? sleepMetricsByDate.get(memoryCards.yearAgoEntry.date) : undefined}
               onOpen={openDateForReading}
             />
             {memoryCards.seasonEntry && (
               <MemoryCard
                 label={`この季節の記録（${memoryCards.season}）`}
                 entry={memoryCards.seasonEntry}
+                sleep={sleepMetricsByDate.get(memoryCards.seasonEntry.date)}
                 onOpen={openDateForReading}
               />
             )}
@@ -2031,6 +2248,7 @@ export default function App() {
               {searchResults.map((item) => (
                 <CompactEntryCard
                   entry={item}
+                  sleep={sleepMetricsByDate.get(item.date)}
                   key={item.id}
                   snippet={buildSearchSnippet(item, query)}
                   onOpen={openDateForReading}
@@ -2065,6 +2283,42 @@ export default function App() {
                   ))}
                 </select>
               </label>
+            </section>
+
+            <section className="settings-section">
+              <h2>変動費設定</h2>
+              <p className="notice">日常費・満足費・反省費の合計を、指定した開始日から翌月の前日までで集計します。</p>
+              <div className="two-cols settings-money-grid">
+                <label>
+                  変動費予算
+                  <input
+                    min="0"
+                    step="1"
+                    type="number"
+                    value={settings.variableExpenseBudget}
+                    onChange={(event) => setSettings({ ...settings, variableExpenseBudget: normalizeOptionalMoney(event.target.value) ?? 0 })}
+                    onBlur={() => void saveExpenseSettings({ variableExpenseBudget: settings.variableExpenseBudget })}
+                  />
+                </label>
+                <label>
+                  期間開始日
+                  <input
+                    min="1"
+                    max="31"
+                    step="1"
+                    type="number"
+                    value={settings.variableExpenseStartDay}
+                    onChange={(event) => setSettings({ ...settings, variableExpenseStartDay: Math.min(31, Math.max(1, Number(event.target.value) || 1)) })}
+                    onBlur={() => void saveExpenseSettings({ variableExpenseStartDay: settings.variableExpenseStartDay })}
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h2>Androidウィジェット</h2>
+              <p className="notice">Android companionをインストールしたPixel 8へ、直近7日平均・今期残額・前日変動費だけを渡します。日記本文と写真は渡しません。</p>
+              <button className="wide" type="button" onClick={syncAndroidWidget}>ウィジェットを更新</button>
             </section>
 
             <section className="settings-section">

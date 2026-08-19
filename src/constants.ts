@@ -1,6 +1,6 @@
 import type { AppSettings, Energy, Mood } from "./types";
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "2.0.0";
 
 export const DEFAULT_TEMPLATE = `■1. 今日の事実
 ・起床：
@@ -70,4 +70,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tagOptions: DEFAULT_TAG_OPTIONS,
   version: APP_VERSION,
   dayBoundaryTime: "05:00",
+  variableExpenseBudget: 110000,
+  variableExpenseStartDay: 25,
 };

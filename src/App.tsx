@@ -31,12 +31,16 @@ import {
   formatMoneyCompact,
   getExpensePeriod,
   getSleepMetrics,
+  napDraftToMinutes,
   normalizeOptionalMoney,
   parseTimeMinutes,
   periodExpenseTotal,
   recentSleepAverageMinutes,
+  resolveExpenseInput,
+  toExpenseInputDraft,
+  toNapDraft,
 } from "./lifeMetrics";
-import type { SleepMetrics } from "./lifeMetrics";
+import type { ExpenseInputDraft, NapDraft, SleepMetrics } from "./lifeMetrics";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { buildEntrySummary, buildSearchSnippet, classifyBodyLines } from "./summary";
 import type { SearchSnippet } from "./summary";
@@ -192,6 +196,18 @@ function rhythmMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
     entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
     metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
     metrics.napMinutes !== null ? `仮眠 ${formatHoursCompact(metrics.napMinutes)}` : "",
+  ].filter(Boolean);
+}
+
+// 一覧・検索のカード用。仮眠・満足費・反省費は当日の日記画面と既存グラフ側で見る
+function cardMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
+  const metrics = sleep ?? getSleepMetrics(entry, undefined, "05:00");
+  const expenses = expenseBreakdown(entry);
+  return [
+    entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
+    metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
+    expenses.total !== null ? `全額 ${formatMoneyCompact(expenses.total)}` : "",
+    expenses.everyday !== null ? `日常 ${formatMoneyCompact(expenses.everyday)}` : "",
   ].filter(Boolean);
 }
 
@@ -993,7 +1009,7 @@ function CompactEntryCard({
   onOpen: (date: string) => void | Promise<void>;
 }) {
   // 写真がある日だけカメラアイコンと枚数を足す（睡眠情報と同じ1行に収め、カードを高くしない）
-  const rhythmItems = [...rhythmMeta(entry, sleep), entry.photos.length > 0 ? `📷 ${entry.photos.length}` : ""].filter(
+  const rhythmItems = [...cardMeta(entry, sleep), entry.photos.length > 0 ? `📷 ${entry.photos.length}` : ""].filter(
     Boolean,
   );
   const summary = snippet ? "" : buildEntrySummary(entry);
@@ -1201,6 +1217,15 @@ function Editor({
   const [lifeExpanded, setLifeExpanded] = useState(false);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
+  const [expenseDraft, setExpenseDraft] = useState<ExpenseInputDraft>(() => toExpenseInputDraft(entry));
+  const [napDraft, setNapDraft] = useState<NapDraft>(() => toNapDraft(entry.napMinutes));
+
+  // 日付を移動したときだけ入力欄の下書きを作り直す。
+  // 自動保存で entry オブジェクトが差し替わるだけのときは、入力中の値をそのまま残す
+  useEffect(() => {
+    setExpenseDraft(toExpenseInputDraft(entry));
+    setNapDraft(toNapDraft(entry.napMinutes));
+  }, [entry.id]);
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
@@ -1225,12 +1250,21 @@ function Editor({
   const hasLifeInput = Boolean(
     sleep.totalMinutes !== null || entry.wakeUpTime || entry.bedTime || entry.napMinutes !== null || expenses.total !== null,
   );
-  const napInput = entry.napMinutes === null || entry.napMinutes === undefined
-    ? ""
-    : `${String(Math.floor(entry.napMinutes / 60)).padStart(2, "0")}:${String(entry.napMinutes % 60).padStart(2, "0")}`;
+  // 満足費は入力せず、変動費全額 − 日常費 − 反省費 で求めて既存の satisfactionExpense へ保存する
+  const expenseError = resolveExpenseInput(expenseDraft).error;
 
-  function updateMoney(key: "everydayExpense" | "satisfactionExpense" | "regretExpense", value: string) {
-    onChange({ ...entry, [key]: value === "" ? null : normalizeOptionalMoney(value) });
+  function updateExpenseDraft(key: keyof ExpenseInputDraft, value: string) {
+    const next = { ...expenseDraft, [key]: value };
+    setExpenseDraft(next);
+    const resolved = resolveExpenseInput(next);
+    // 矛盾入力のあいだは保存へ反映せず、直前の正しい値を残す
+    if (resolved.values) onChange({ ...entry, ...resolved.values });
+  }
+
+  function updateNapDraft(key: keyof NapDraft, value: string) {
+    const next = { ...napDraft, [key]: value };
+    setNapDraft(next);
+    onChange({ ...entry, napMinutes: napDraftToMinutes(next) });
   }
 
   return (
@@ -1269,13 +1303,22 @@ function Editor({
         {lifeExpanded && (
           <div className="life-grid">
             <label>起床時間<input type="time" step="60" value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })} /></label>
-            <label>日常費<input inputMode="numeric" min="0" step="1" type="number" value={entry.everydayExpense ?? ""} onChange={(event) => updateMoney("everydayExpense", event.target.value)} placeholder="円" /></label>
+            <label>変動費全額<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.total} onChange={(event) => updateExpenseDraft("total", event.target.value)} placeholder="円" /></label>
             <label>就寝時間<input type="time" step="60" value={entry.bedTime ?? ""} onChange={(event) => onChange({ ...entry, bedTime: event.target.value })} /></label>
-            <label>満足費<input inputMode="numeric" min="0" step="1" type="number" value={entry.satisfactionExpense ?? ""} onChange={(event) => updateMoney("satisfactionExpense", event.target.value)} placeholder="円" /></label>
-            <label>仮眠時間<input type="time" step="60" value={napInput} onChange={(event) => onChange({ ...entry, napMinutes: event.target.value === "" ? null : parseTimeMinutes(event.target.value) })} /></label>
-            <label>反省費<input inputMode="numeric" min="0" step="1" type="number" value={entry.regretExpense ?? ""} onChange={(event) => updateMoney("regretExpense", event.target.value)} placeholder="円" /></label>
+            <label>日常費<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.everyday} onChange={(event) => updateExpenseDraft("everyday", event.target.value)} placeholder="円" /></label>
+            <label>
+              仮眠時間
+              <span className="life-nap-row">
+                <input aria-label="仮眠時間（時間）" inputMode="numeric" min="0" max="23" step="1" type="number" value={napDraft.hours} onChange={(event) => updateNapDraft("hours", event.target.value)} placeholder="0" />
+                時間
+                <input aria-label="仮眠時間（分）" inputMode="numeric" min="0" max="59" step="1" type="number" value={napDraft.minutes} onChange={(event) => updateNapDraft("minutes", event.target.value)} placeholder="0" />
+                分
+              </span>
+            </label>
+            <label>反省費<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.regret} onChange={(event) => updateExpenseDraft("regret", event.target.value)} placeholder="円" /></label>
             <p className="life-total">睡眠合計 {formatDurationJa(sleep.totalMinutes)}</p>
-            <p className="life-total">お金合計 {formatMoneyCompact(expenses.total)}</p>
+            <p className="life-total">満足費 {expenseError ? "−" : formatMoneyCompact(expenses.satisfaction)}</p>
+            {expenseError && <p className="life-error">{expenseError}</p>}
           </div>
         )}
       </section>
@@ -1283,7 +1326,7 @@ function Editor({
       <section className="field-group body-area">
         <label>日記・振り返りを書く</label>
         <button className="body-toggle primary" type="button" onClick={() => setBodyExpanded((expanded) => !expanded)}>
-          {bodyExpanded ? "日記・振り返りを閉じる" : "日記・振り返りを書く"}
+          {bodyExpanded ? "振り返りを閉じる" : "振り返りを書く"}
         </button>
         {bodyExpanded && (
           <div className="body-panel">
@@ -2287,7 +2330,7 @@ export default function App() {
 
             <section className="settings-section">
               <h2>変動費設定</h2>
-              <p className="notice">日常費・満足費・反省費の合計を、指定した開始日から翌月の前日までで集計します。</p>
+              <p className="notice">変動費全額を、指定した開始日から翌月の前日までで集計します。</p>
               <div className="two-cols settings-money-grid">
                 <label>
                   変動費予算

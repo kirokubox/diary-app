@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EXPENSE_OVER_TOTAL_MESSAGE,
   expenseBreakdown,
   getExpensePeriod,
   getSleepMetrics,
+  napDraftToMinutes,
   periodExpenseTotal,
   recentSleepAverageMinutes,
   resolveBedDateTime,
+  resolveExpenseInput,
+  toExpenseInputDraft,
+  toNapDraft,
 } from "../src/lifeMetrics";
 import type { DiaryEntry } from "../src/types";
 import { entryToMarkdown } from "../src/markdown";
@@ -122,4 +127,75 @@ test("Markdownは実測就寝・分単位睡眠・変動費を出す", () => {
   assert.match(markdown, /日常費：0円/);
   assert.match(markdown, /満足費：未入力/);
   assert.match(markdown, /合計：327円/);
+});
+
+test("変動費全額から満足費を求める（空欄は全額入力時だけ0円扱い）", () => {
+  assert.deepEqual(resolveExpenseInput({ total: "3000", everyday: "", regret: "" }), {
+    error: "",
+    values: { everydayExpense: null, satisfactionExpense: 3000, regretExpense: null },
+  });
+  assert.deepEqual(resolveExpenseInput({ total: "3000", everyday: "1200", regret: "" }), {
+    error: "",
+    values: { everydayExpense: 1200, satisfactionExpense: 1800, regretExpense: null },
+  });
+  assert.deepEqual(resolveExpenseInput({ total: "3000", everyday: "", regret: "500" }), {
+    error: "",
+    values: { everydayExpense: null, satisfactionExpense: 2500, regretExpense: 500 },
+  });
+  assert.deepEqual(resolveExpenseInput({ total: "7414", everyday: "1125", regret: "181" }), {
+    error: "",
+    values: { everydayExpense: 1125, satisfactionExpense: 6108, regretExpense: 181 },
+  });
+});
+
+test("変動費全額が未入力なら満足費も未入力、0円は0円のまま", () => {
+  assert.deepEqual(resolveExpenseInput({ total: "", everyday: "1200", regret: "" }), {
+    error: "",
+    values: { everydayExpense: 1200, satisfactionExpense: null, regretExpense: null },
+  });
+  assert.deepEqual(resolveExpenseInput({ total: "0", everyday: "0", regret: "" }), {
+    error: "",
+    values: { everydayExpense: 0, satisfactionExpense: 0, regretExpense: null },
+  });
+});
+
+test("日常費と反省費の合計が全額を超えたら保存へ反映しない", () => {
+  const result = resolveExpenseInput({ total: "2000", everyday: "1800", regret: "500" });
+  assert.equal(result.error, EXPENSE_OVER_TOTAL_MESSAGE);
+  assert.equal(result.values, null);
+  // ちょうど同額は有効（満足費0円）
+  assert.deepEqual(resolveExpenseInput({ total: "2300", everyday: "1800", regret: "500" }).values, {
+    everydayExpense: 1800,
+    satisfactionExpense: 0,
+    regretExpense: 500,
+  });
+});
+
+test("既存データは3分類の合計を変動費全額として表示する", () => {
+  const existing = entry("2026-08-19", { everydayExpense: 1283, satisfactionExpense: 4520, regretExpense: 327 });
+  assert.deepEqual(toExpenseInputDraft(existing), { total: "6130", everyday: "1283", regret: "327" });
+  // 表示した全額のまま保存し直しても、既存の3分類へ戻る
+  assert.deepEqual(resolveExpenseInput(toExpenseInputDraft(existing)).values, {
+    everydayExpense: 1283,
+    satisfactionExpense: 4520,
+    regretExpense: 327,
+  });
+  assert.deepEqual(toExpenseInputDraft(entry("2026-08-20")), { total: "", everyday: "", regret: "" });
+});
+
+test("仮眠は時間・分の経過時間として分へ変換する", () => {
+  assert.equal(napDraftToMinutes({ hours: "1", minutes: "30" }), 90);
+  assert.equal(napDraftToMinutes({ hours: "", minutes: "42" }), 42);
+  assert.equal(napDraftToMinutes({ hours: "2", minutes: "" }), 120);
+  assert.equal(napDraftToMinutes({ hours: "", minutes: "" }), null);
+  assert.equal(napDraftToMinutes({ hours: "", minutes: "0" }), 0);
+  assert.deepEqual(toNapDraft(90), { hours: "1", minutes: "30" });
+  assert.deepEqual(toNapDraft(42), { hours: "", minutes: "42" });
+  assert.deepEqual(toNapDraft(null), { hours: "", minutes: "" });
+});
+
+test("仮眠入力を変えても睡眠合計は既存ロジックのまま", () => {
+  const previous = entry("2026-08-18", { wakeUpTime: "06:00", bedTime: "01:12" });
+  const current = entry("2026-08-19", { wakeUpTime: "06:30", napMinutes: napDraftToMinutes({ hours: "", minutes: "42" }) });
+  assert.equal(getSleepMetrics(current, previous, "05:00").totalMinutes, 360);
 });

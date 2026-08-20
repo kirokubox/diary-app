@@ -188,3 +188,79 @@ export function buildWidgetSnapshot(entries: DiaryEntry[], settings: AppSettings
 export function formatMoneyCompact(value: number | null): string {
   return value === null ? "−" : `${value.toLocaleString("ja-JP")}円`;
 }
+
+// ---- 変動費の入力（変動費全額・日常費・反省費）----
+// 保存フィールドは従来どおり everyday / satisfaction / regret の3つ。
+// 画面は「全額 = 3分類の合計」を表示し、保存時は「満足費 = 全額 − 日常費 − 反省費」で戻す。
+// 新しい永続フィールドを増やさないため、既存データはそのまま読み書きできる。
+
+export const EXPENSE_OVER_TOTAL_MESSAGE = "日常費と反省費の合計が変動費全額を超えています";
+
+export type ExpenseInputDraft = {
+  total: string;
+  everyday: string;
+  regret: string;
+};
+
+export type ExpenseInputValues = {
+  everydayExpense: number | null;
+  satisfactionExpense: number | null;
+  regretExpense: number | null;
+};
+
+export type ExpenseInputResult = {
+  error: string;
+  // 矛盾入力（日常費＋反省費＞全額）のときは null。保存へ反映せず、直前の値を保つ
+  values: ExpenseInputValues | null;
+};
+
+export function toExpenseInputDraft(entry: DiaryEntry): ExpenseInputDraft {
+  const expenses = expenseBreakdown(entry);
+  return {
+    total: expenses.total === null ? "" : String(expenses.total),
+    everyday: expenses.everyday === null ? "" : String(expenses.everyday),
+    regret: expenses.regret === null ? "" : String(expenses.regret),
+  };
+}
+
+export function resolveExpenseInput(draft: ExpenseInputDraft): ExpenseInputResult {
+  const total = normalizeOptionalMoney(draft.total);
+  const everyday = normalizeOptionalMoney(draft.everyday);
+  const regret = normalizeOptionalMoney(draft.regret);
+  // 全額が未入力なら満足費も未入力扱い（0円と未入力は区別したままにする）
+  if (total === null) {
+    return { error: "", values: { everydayExpense: everyday, satisfactionExpense: null, regretExpense: regret } };
+  }
+  const used = (everyday ?? 0) + (regret ?? 0);
+  if (used > total) return { error: EXPENSE_OVER_TOTAL_MESSAGE, values: null };
+  return { error: "", values: { everydayExpense: everyday, satisfactionExpense: total - used, regretExpense: regret } };
+}
+
+// ---- 仮眠時間の入力（経過時間を「時間」「分」で分けて入力する）----
+// 保存は従来どおり napMinutes（分）。睡眠計算はこのファイルの既存関数をそのまま使う。
+
+export type NapDraft = {
+  hours: string;
+  minutes: string;
+};
+
+function parseNapPart(value: string): number | null {
+  if (value.trim() === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.floor(number);
+}
+
+export function toNapDraft(minutes: number | null | undefined): NapDraft {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes < 0) return { hours: "", minutes: "" };
+  const rounded = Math.round(minutes);
+  const hourPart = Math.floor(rounded / 60);
+  return { hours: hourPart === 0 ? "" : String(hourPart), minutes: String(rounded % 60) };
+}
+
+export function napDraftToMinutes(draft: NapDraft): number | null {
+  const hours = parseNapPart(draft.hours);
+  const minutes = parseNapPart(draft.minutes);
+  if (hours === null && minutes === null) return null;
+  return (hours ?? 0) * 60 + (minutes ?? 0);
+}

@@ -1,4 +1,4 @@
-const CACHE_NAME = "seasonal-diary-app-v6";
+const CACHE_NAME = "seasonal-diary-app-v7";
 const APP_BASE = new URL(self.registration.scope).pathname;
 const INDEX_URL = `${APP_BASE}index.html`;
 const APP_SHELL = [

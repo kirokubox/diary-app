@@ -347,6 +347,32 @@ main {
   font-weight: 900;
 }
 
+/* 仮眠は経過時間なので、時刻ピッカーではなく「時間」「分」の数値入力を横並びにする */
+.life-nap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #50616a;
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.life-nap-row input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.life-error {
+  grid-column: 1 / -1;
+  color: #a3372f;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .reading-life-grid {
   border: 1px solid #d5e0e3;
   border-radius: 8px;

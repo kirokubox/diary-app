@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { buildSleepChartPoints, formatChartTime, formatWakeTick, sleepDetailDateLabel, sleepHoursMeta } from "./diaryHelpers";
-import type { SleepChartPoint } from "./diaryHelpers";
 import { formatHoursCompact, recentSleepAverageMinutes } from "./lifeMetrics";
 import type { DiaryEntry } from "./types";
 

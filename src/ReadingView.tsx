@@ -4,7 +4,7 @@ import { expenseBreakdown, formatDurationJa, formatMoneyCompact } from "./lifeMe
 import type { SleepMetrics } from "./lifeMetrics";
 import { PhotoSection } from "./PhotoSection";
 import { classifyBodyLines } from "./summary";
-import type { DiaryEntry, ScratchItem } from "./types";
+import type { DiaryEntry } from "./types";
 
 export function ReadingView({
   entry,

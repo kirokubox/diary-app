@@ -4,7 +4,7 @@ import { makeScratchItem } from "./diaryHelpers";
 import { expenseBreakdown, formatDurationJa, formatHoursCompact, formatMoneyCompact, napDraftToMinutes, resolveExpenseInput, toExpenseInputDraft, toNapDraft } from "./lifeMetrics";
 import type { ExpenseInputDraft, NapDraft, SleepMetrics } from "./lifeMetrics";
 import { PhotoSection } from "./PhotoSection";
-import type { DiaryEntry, DiaryPhoto, SaveState, ScratchItem } from "./types";
+import type { DiaryEntry, DiaryPhoto, SaveState } from "./types";
 
 export function Editor({
   entry,

@@ -7,15 +7,13 @@ import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./
 import { Editor } from "./Editor";
 import { downloadBlob, downloadText } from "./fileUtils";
 import { buildSleepMetricsMap, buildWidgetSnapshot, getSleepMetrics, normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
-import type { SleepMetrics } from "./lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
 import { MemoryCard } from "./MemoryCard";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { ReadingView } from "./ReadingView";
 import { RecentSleepCard } from "./RecentSleepCard";
-import { clearEntries, clearPhotos, clearSettings, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllPhotoIds, getAllPhotos, getEntry, getPhoto, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveSettings } from "./storage";
+import { clearEntries, clearPhotos, clearSettings, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllPhotoIds, getAllPhotos, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveSettings } from "./storage";
 import { buildSearchSnippet } from "./summary";
-import type { SearchSnippet } from "./summary";
 import type { AppSettings, DiaryEntry, DiaryPhoto, SaveState, ScratchItem, TabKey } from "./types";
 import { VariableExpenseCard } from "./VariableExpenseCard";
 import { createZipBlob, readZipEntries } from "./zip";

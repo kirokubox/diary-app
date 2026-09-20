@@ -1,21 +1,21 @@
 import { useMemo, useState } from "react";
+import { SLEEP_DAY_BOUNDARY_TIME } from "./constants";
 import { buildSleepChartPoints, formatChartTime, formatWakeTick, sleepDetailDateLabel, sleepHoursMeta } from "./diaryHelpers";
 import { formatHoursCompact, recentSleepAverageMinutes } from "./lifeMetrics";
 import type { DiaryEntry } from "./types";
 
 export function RecentSleepCard({
   entries,
-  dayBoundaryTime,
   onOpenDate,
 }: {
   entries: DiaryEntry[];
-  dayBoundaryTime: string;
   onOpenDate: (date: string) => void | Promise<void>;
 }) {
-  const chartPoints = useMemo(() => buildSleepChartPoints(entries, dayBoundaryTime), [entries, dayBoundaryTime]);
+  // 就寝の日跨ぎ判定だけに使う内部境界値。ユーザー設定ではない（2026-09-20に生活日付設定を廃止）
+  const chartPoints = useMemo(() => buildSleepChartPoints(entries, SLEEP_DAY_BOUNDARY_TIME), [entries]);
   const average = useMemo(
-    () => formatHoursCompact(recentSleepAverageMinutes(entries, dayBoundaryTime)),
-    [entries, dayBoundaryTime],
+    () => formatHoursCompact(recentSleepAverageMinutes(entries, SLEEP_DAY_BOUNDARY_TIME)),
+    [entries],
   );
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   // 14件の窓から外れた日付は find で見つからず、詳細も自然に閉じる

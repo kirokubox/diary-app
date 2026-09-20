@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
-import { APP_VERSION, DAY_BOUNDARY_OPTIONS, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
+import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT, SLEEP_DAY_BOUNDARY_TIME } from "./constants";
 import { addDays, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, yearsAgoExact } from "./dateUtils";
-import { PHOTO_BACKUP_README, cleanTag, formatShortDate, getLifeDateKey, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
+import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
 import { Editor } from "./Editor";
 import { downloadBlob, downloadText } from "./fileUtils";
@@ -77,7 +77,7 @@ export default function App() {
   useEffect(() => {
     async function init() {
       const loadedSettings = await getSettings();
-      const initialDate = getLifeDateKey(new Date(), loadedSettings.dayBoundaryTime);
+      const initialDate = toDateInputValue();
       const loadedEntry = await getEntry(initialDate);
       const loadedEntries = await getAllEntries();
       setSettings(loadedSettings);
@@ -328,7 +328,7 @@ export default function App() {
     const previous = entries.find((item) => item.date === addDays(entry.date, -1));
     downloadText(
       `diary-${entry.date}.md`,
-      entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }, previous, settings.dayBoundaryTime),
+      entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }, previous, SLEEP_DAY_BOUNDARY_TIME),
       "text/markdown",
     );
     notify("Markdownをエクスポートしました");
@@ -338,7 +338,7 @@ export default function App() {
   function exportEntryMarkdownWithoutSave() {
     if (!entry) return;
     const previous = entries.find((item) => item.date === addDays(entry.date, -1));
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry, previous, settings.dayBoundaryTime), "text/markdown");
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry, previous, SLEEP_DAY_BOUNDARY_TIME), "text/markdown");
     notify("Markdownをエクスポートしました");
   }
 
@@ -396,15 +396,16 @@ export default function App() {
 
   // entries は日付降順なので先頭7件が直近
   const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
+  // 就寝の日跨ぎ判定だけに使う内部境界値。ユーザー設定ではない（2026-09-20に生活日付設定を廃止）
   const sleepMetricsByDate = useMemo(
-    () => buildSleepMetricsMap(entries, settings.dayBoundaryTime),
-    [entries, settings.dayBoundaryTime],
+    () => buildSleepMetricsMap(entries, SLEEP_DAY_BOUNDARY_TIME),
+    [entries],
   );
   const activeSleepMetrics = useMemo(() => {
     if (!entry) return null;
     const previous = entries.find((item) => item.date === addDays(entry.date, -1));
-    return getSleepMetrics(entry, previous, settings.dayBoundaryTime);
-  }, [entry, entries, settings.dayBoundaryTime]);
+    return getSleepMetrics(entry, previous, SLEEP_DAY_BOUNDARY_TIME);
+  }, [entry, entries]);
 
   // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
   const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
@@ -416,7 +417,7 @@ export default function App() {
   );
 
   const memoryCards = useMemo(() => {
-    const todayKey = getLifeDateKey(new Date(), settings.dayBoundaryTime);
+    const todayKey = toDateInputValue();
     const monthAgoDate = monthsAgoExact(todayKey, 1);
     const yearAgoDate = yearsAgoExact(todayKey, 1);
     const monthAgoEntry = (monthAgoDate && entries.find((item) => item.date === monthAgoDate)) || null;
@@ -435,7 +436,7 @@ export default function App() {
     );
 
     return { monthAgoDate, yearAgoDate, monthAgoEntry, yearAgoEntry, season, seasonEntry };
-  }, [entries, settings.dayBoundaryTime]);
+  }, [entries]);
 
   async function exportJson() {
     const payload = {
@@ -453,7 +454,7 @@ export default function App() {
   }
 
   function exportMarkdown() {
-    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries, settings.dayBoundaryTime), "text/markdown");
+    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries, SLEEP_DAY_BOUNDARY_TIME), "text/markdown");
   }
 
   // 通常JSONと写真つきZIP内のJSONで共通に使う検証。写真の画像そのものは扱わない
@@ -516,7 +517,7 @@ export default function App() {
         }
       : null;
     if (settingsFound) {
-      warnings.push({ message: "settings が含まれています。実行するとテンプレート・生活日付・変動費設定も復元します。" });
+      warnings.push({ message: "settings が含まれています。実行するとテンプレート・変動費設定も復元します。" });
     }
 
     const photoMetaCount = addableEntries.reduce((sum, item) => sum + item.photos.length, 0);
@@ -739,13 +740,6 @@ export default function App() {
     notify("テンプレートを保存しました");
   }
 
-  async function saveDayBoundaryTime(dayBoundaryTime: string) {
-    const next = { ...settings, dayBoundaryTime };
-    setSettings(next);
-    await saveSettings(next);
-    notify("生活日付設定を保存しました");
-  }
-
   async function saveExpenseSettings(patch: Partial<Pick<AppSettings, "variableExpenseBudget" | "variableExpenseStartDay">>) {
     const next = { ...settings, ...patch };
     setSettings(next);
@@ -754,7 +748,7 @@ export default function App() {
   }
 
   function syncAndroidWidget() {
-    const today = getLifeDateKey(new Date(), settings.dayBoundaryTime);
+    const today = toDateInputValue();
     const snapshot = buildWidgetSnapshot(entries, settings, today);
     const params = new URLSearchParams({
       sleep: snapshot.averageSleepText,
@@ -830,8 +824,8 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
-            <RecentSleepCard entries={entries} dayBoundaryTime={settings.dayBoundaryTime} onOpenDate={openDateForReading} />
-            <VariableExpenseCard entries={entries} settings={settings} today={getLifeDateKey(new Date(), settings.dayBoundaryTime)} />
+            <RecentSleepCard entries={entries} onOpenDate={openDateForReading} />
+            <VariableExpenseCard entries={entries} settings={settings} today={toDateInputValue()} />
             <section className="list-section">
               <h2 className="list-section-title">最近の日記</h2>
               {recentEntries.length === 0 ? (
@@ -914,24 +908,6 @@ export default function App() {
                 <h1>設定</h1>
               </div>
             </header>
-
-            <section className="settings-section">
-              <h2>生活日付設定</h2>
-              <p className="notice">
-                日付切り替え時刻より前の時間帯は、前日の記録として扱います。
-                例：05:00に設定すると、深夜1:00の記録は前日分として開きます。
-              </p>
-              <label className="settings-field">
-                日付切り替え時刻
-                <select value={settings.dayBoundaryTime} onChange={(event) => void saveDayBoundaryTime(event.target.value)}>
-                  {DAY_BOUNDARY_OPTIONS.map((time) => (
-                    <option key={time} value={time}>
-                      {time}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </section>
 
             <section className="settings-section">
               <h2>変動費設定</h2>

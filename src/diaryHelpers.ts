@@ -1,5 +1,5 @@
-import { ENERGY_OPTIONS, MOOD_OPTIONS, PHOTO_MAX_COUNT } from "./constants";
-import { addDays, nowIsoLocal, toDateInputValue, weekdayOf } from "./dateUtils";
+import { ENERGY_OPTIONS, MOOD_OPTIONS, PHOTO_MAX_COUNT, SLEEP_DAY_BOUNDARY_TIME } from "./constants";
+import { nowIsoLocal, weekdayOf } from "./dateUtils";
 import { buildSleepMetricsMap, expenseBreakdown, formatHoursCompact, formatMoneyCompact, getSleepMetrics, normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import type { SleepMetrics } from "./lifeMetrics";
 import { normalizePhotoMeta } from "./storage";
@@ -129,7 +129,7 @@ export function formatShortDate(date: string): string {
 }
 
 export function rhythmMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
-  const metrics = sleep ?? getSleepMetrics(entry, undefined, "05:00");
+  const metrics = sleep ?? getSleepMetrics(entry, undefined, SLEEP_DAY_BOUNDARY_TIME);
   return [
     entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
     metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
@@ -139,7 +139,7 @@ export function rhythmMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
 
 // 一覧・検索のカード用。仮眠・満足費・反省費は当日の日記画面と既存グラフ側で見る
 export function cardMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
-  const metrics = sleep ?? getSleepMetrics(entry, undefined, "05:00");
+  const metrics = sleep ?? getSleepMetrics(entry, undefined, SLEEP_DAY_BOUNDARY_TIME);
   const expenses = expenseBreakdown(entry);
   return [
     entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
@@ -156,14 +156,6 @@ export function makeScratchItem(text: string): ScratchItem {
     text,
     createdAt: stamp,
   };
-}
-
-export function getLifeDateKey(date: Date, dayBoundaryTime: string): string {
-  const [hoursText, minutesText] = dayBoundaryTime.split(":");
-  const boundaryMinutes = Number(hoursText) * 60 + Number(minutesText);
-  const currentMinutes = date.getHours() * 60 + date.getMinutes();
-  const dateKey = toDateInputValue(date);
-  return currentMinutes < boundaryMinutes ? addDays(dateKey, -1) : dateKey;
 }
 
 export function normalizeScratchItems(value: unknown): ScratchItem[] {

@@ -1,3 +1,4 @@
+import { SLEEP_DAY_BOUNDARY_TIME } from "./constants";
 import { addDays, toDateInputValue } from "./dateUtils";
 import type { AppSettings, DiaryEntry } from "./types";
 
@@ -173,7 +174,8 @@ export function recentSleepAverageMinutes(
 }
 
 export function buildWidgetSnapshot(entries: DiaryEntry[], settings: AppSettings, today: string) {
-  const averageMinutes = recentSleepAverageMinutes(entries, settings.dayBoundaryTime);
+  // 就寝の日跨ぎ判定だけに使う内部境界値。ユーザー設定ではない（2026-09-20に生活日付設定を廃止）
+  const averageMinutes = recentSleepAverageMinutes(entries, SLEEP_DAY_BOUNDARY_TIME);
   const period = getExpensePeriod(today, settings.variableExpenseStartDay);
   const remaining = settings.variableExpenseBudget - periodExpenseTotal(entries, period, today);
   const yesterday = entries.find((entry) => entry.date === addDays(today, -1));

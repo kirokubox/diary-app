@@ -63,7 +63,11 @@ export const PHOTO_WEBP_QUALITY = 0.8;
 export const PHOTO_JPEG_QUALITY = 0.82;
 export const ENERGY_OPTIONS: Energy[] = ["", "高", "中", "低"];
 export const MOOD_OPTIONS: Mood[] = ["", "🙂", "😐", "☹️"];
-export const DAY_BOUNDARY_OPTIONS = ["00:00", "03:00", "04:00", "05:00", "06:00"] as const;
+
+// 就寝実日時の日跨ぎ判定（起床未入力時のフォールバック）専用の内部境界値。
+// 2026-09-20に「今日」の丸め（生活日付）は暦日へ統一して廃止したが、
+// この値は睡眠計算（src/lifeMetrics.ts）だけに残る。設定画面からは変更できない
+export const SLEEP_DAY_BOUNDARY_TIME = "05:00";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   template: DEFAULT_TEMPLATE,

@@ -1,28 +1,21 @@
 import { addDays, timeOnly } from "./dateUtils";
-import { rhythmMeta } from "./diaryHelpers";
-import { expenseBreakdown, formatDurationJa, formatMoneyCompact } from "./lifeMetrics";
-import type { SleepMetrics } from "./lifeMetrics";
 import { PhotoSection } from "./PhotoSection";
 import { classifyBodyLines } from "./summary";
 import type { DiaryEntry } from "./types";
 
 export function ReadingView({
   entry,
-  sleep,
   exists,
   onMoveDate,
   onStartEditing,
   onExportMarkdown,
 }: {
   entry: DiaryEntry;
-  sleep: SleepMetrics;
   exists: boolean;
   onMoveDate: (date: string) => void | Promise<void>;
   onStartEditing: () => void;
   onExportMarkdown: () => void;
 }) {
-  const rhythmItems = rhythmMeta(entry, sleep);
-  const expenses = expenseBreakdown(entry);
   const scratchText = entry.scratch.trim();
   const sortedScratchItems = [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -60,20 +53,6 @@ export function ReadingView({
         </div>
       ) : (
         <>
-          {rhythmItems.length > 0 && <p className="reading-meta">{rhythmItems.join("　")}</p>}
-
-          {(sleep.totalMinutes !== null || entry.wakeUpTime || entry.bedTime || sleep.napMinutes !== null || expenses.total !== null) && (
-            <section className="reading-section reading-life">
-              <h2>生活</h2>
-              <div className="reading-life-grid">
-                <span>起床 {entry.wakeUpTime || "−"}</span><span>日常 {formatMoneyCompact(expenses.everyday)}</span>
-                <span>就寝 {entry.bedTime || "−"}</span><span>満足 {formatMoneyCompact(expenses.satisfaction)}</span>
-                <span>仮眠 {formatDurationJa(sleep.napMinutes)}</span><span>反省 {formatMoneyCompact(expenses.regret)}</span>
-                <strong>睡眠合計 {formatDurationJa(sleep.totalMinutes)}</strong><strong>合計 {formatMoneyCompact(expenses.total)}</strong>
-              </div>
-            </section>
-          )}
-
           <section className="reading-section">
             <h2>振り返り</h2>
             <div className="reading-body">

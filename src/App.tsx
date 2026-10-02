@@ -1,21 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
-import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT, SLEEP_DAY_BOUNDARY_TIME } from "./constants";
-import { addDays, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, yearsAgoExact } from "./dateUtils";
+import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
+import { monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
 import { Editor } from "./Editor";
 import { downloadBlob, downloadText } from "./fileUtils";
-import { buildSleepMetricsMap, buildWidgetSnapshot, getSleepMetrics, normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
+import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
 import { MemoryCard } from "./MemoryCard";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { ReadingView } from "./ReadingView";
-import { RecentSleepCard } from "./RecentSleepCard";
 import { clearEntries, clearPhotos, clearSettings, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllPhotoIds, getAllPhotos, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveSettings } from "./storage";
 import { buildSearchSnippet } from "./summary";
 import type { AppSettings, DiaryEntry, DiaryPhoto, SaveState, ScratchItem, TabKey } from "./types";
-import { VariableExpenseCard } from "./VariableExpenseCard";
 import { createZipBlob, readZipEntries } from "./zip";
 import type { ZipInputFile } from "./zip";
 
@@ -325,20 +323,14 @@ export default function App() {
   async function exportEntryMarkdown() {
     if (!entry) return;
     await persistEntry(entry);
-    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
-    downloadText(
-      `diary-${entry.date}.md`,
-      entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }, previous, SLEEP_DAY_BOUNDARY_TIME),
-      "text/markdown",
-    );
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }), "text/markdown");
     notify("Markdownをエクスポートしました");
   }
 
   // 閲覧モード用。保存を伴わない(未作成日にテンプレだけの日記を作らない)
   function exportEntryMarkdownWithoutSave() {
     if (!entry) return;
-    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry, previous, SLEEP_DAY_BOUNDARY_TIME), "text/markdown");
+    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry), "text/markdown");
     notify("Markdownをエクスポートしました");
   }
 
@@ -396,17 +388,6 @@ export default function App() {
 
   // entries は日付降順なので先頭7件が直近
   const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
-  // 就寝の日跨ぎ判定だけに使う内部境界値。ユーザー設定ではない（2026-09-20に生活日付設定を廃止）
-  const sleepMetricsByDate = useMemo(
-    () => buildSleepMetricsMap(entries, SLEEP_DAY_BOUNDARY_TIME),
-    [entries],
-  );
-  const activeSleepMetrics = useMemo(() => {
-    if (!entry) return null;
-    const previous = entries.find((item) => item.date === addDays(entry.date, -1));
-    return getSleepMetrics(entry, previous, SLEEP_DAY_BOUNDARY_TIME);
-  }, [entry, entries]);
-
   // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
   const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
 
@@ -454,7 +435,7 @@ export default function App() {
   }
 
   function exportMarkdown() {
-    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries, SLEEP_DAY_BOUNDARY_TIME), "text/markdown");
+    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries), "text/markdown");
   }
 
   // 通常JSONと写真つきZIP内のJSONで共通に使う検証。写真の画像そのものは扱わない
@@ -517,7 +498,7 @@ export default function App() {
         }
       : null;
     if (settingsFound) {
-      warnings.push({ message: "settings が含まれています。実行するとテンプレート・変動費設定も復元します。" });
+      warnings.push({ message: "settings が含まれています。実行するとテンプレート等の設定も復元します。" });
     }
 
     const photoMetaCount = addableEntries.reduce((sum, item) => sum + item.photos.length, 0);
@@ -740,25 +721,6 @@ export default function App() {
     notify("テンプレートを保存しました");
   }
 
-  async function saveExpenseSettings(patch: Partial<Pick<AppSettings, "variableExpenseBudget" | "variableExpenseStartDay">>) {
-    const next = { ...settings, ...patch };
-    setSettings(next);
-    await saveSettings(next);
-    notify("変動費設定を保存しました");
-  }
-
-  function syncAndroidWidget() {
-    const today = toDateInputValue();
-    const snapshot = buildWidgetSnapshot(entries, settings, today);
-    const params = new URLSearchParams({
-      sleep: snapshot.averageSleepText,
-      remaining: snapshot.remainingText,
-      yesterday: snapshot.yesterdayExpenseText,
-      updated: snapshot.updatedAt,
-    });
-    window.location.href = `seasonaldiary://widget/update?${params.toString()}`;
-  }
-
   async function resetTemplate() {
     const next = { ...settings, template: DEFAULT_TEMPLATE };
     setSettings(next);
@@ -785,11 +747,10 @@ export default function App() {
     <div className="app-shell">
       {!isOnline && <div className="offline-badge">オフライン</div>}
       <main>
-        {tab === "today" && entry && activeSleepMetrics && (
+        {tab === "today" && entry && (
           entryViewMode === "read" ? (
             <ReadingView
               entry={entry}
-              sleep={activeSleepMetrics}
               exists={entryExists}
               onMoveDate={openDateForReading}
               onStartEditing={startEditing}
@@ -798,7 +759,6 @@ export default function App() {
           ) : (
             <Editor
               entry={entry}
-              sleep={activeSleepMetrics}
               saveState={saveState}
               onChange={updateEntry}
               onManualSave={() => void persistEntry(entry)}
@@ -824,8 +784,6 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
-            <RecentSleepCard entries={entries} onOpenDate={openDateForReading} />
-            <VariableExpenseCard entries={entries} settings={settings} today={toDateInputValue()} />
             <section className="list-section">
               <h2 className="list-section-title">最近の日記</h2>
               {recentEntries.length === 0 ? (
@@ -833,7 +791,7 @@ export default function App() {
               ) : (
                 <div className="entry-list">
                   {recentEntries.map((item) => (
-                    <CompactEntryCard entry={item} sleep={sleepMetricsByDate.get(item.date)} key={item.id} onOpen={openDateForReading} />
+                    <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
                   ))}
                 </div>
               )}
@@ -841,20 +799,17 @@ export default function App() {
             <MemoryCard
               label={`1か月前${memoryCards.monthAgoDate ? `（${formatShortDate(memoryCards.monthAgoDate)}）` : ""}`}
               entry={memoryCards.monthAgoEntry}
-              sleep={memoryCards.monthAgoEntry ? sleepMetricsByDate.get(memoryCards.monthAgoEntry.date) : undefined}
               onOpen={openDateForReading}
             />
             <MemoryCard
               label={`1年前${memoryCards.yearAgoDate ? `（${formatShortDate(memoryCards.yearAgoDate)}）` : ""}`}
               entry={memoryCards.yearAgoEntry}
-              sleep={memoryCards.yearAgoEntry ? sleepMetricsByDate.get(memoryCards.yearAgoEntry.date) : undefined}
               onOpen={openDateForReading}
             />
             {memoryCards.seasonEntry && (
               <MemoryCard
                 label={`この季節の記録（${memoryCards.season}）`}
                 entry={memoryCards.seasonEntry}
-                sleep={sleepMetricsByDate.get(memoryCards.seasonEntry.date)}
                 onOpen={openDateForReading}
               />
             )}
@@ -890,7 +845,6 @@ export default function App() {
               {searchResults.map((item) => (
                 <CompactEntryCard
                   entry={item}
-                  sleep={sleepMetricsByDate.get(item.date)}
                   key={item.id}
                   snippet={buildSearchSnippet(item, query)}
                   onOpen={openDateForReading}
@@ -908,42 +862,6 @@ export default function App() {
                 <h1>設定</h1>
               </div>
             </header>
-
-            <section className="settings-section">
-              <h2>変動費設定</h2>
-              <p className="notice">変動費全額を、指定した開始日から翌月の前日までで集計します。</p>
-              <div className="two-cols settings-money-grid">
-                <label>
-                  変動費予算
-                  <input
-                    min="0"
-                    step="1"
-                    type="number"
-                    value={settings.variableExpenseBudget}
-                    onChange={(event) => setSettings({ ...settings, variableExpenseBudget: normalizeOptionalMoney(event.target.value) ?? 0 })}
-                    onBlur={() => void saveExpenseSettings({ variableExpenseBudget: settings.variableExpenseBudget })}
-                  />
-                </label>
-                <label>
-                  期間開始日
-                  <input
-                    min="1"
-                    max="31"
-                    step="1"
-                    type="number"
-                    value={settings.variableExpenseStartDay}
-                    onChange={(event) => setSettings({ ...settings, variableExpenseStartDay: Math.min(31, Math.max(1, Number(event.target.value) || 1)) })}
-                    onBlur={() => void saveExpenseSettings({ variableExpenseStartDay: settings.variableExpenseStartDay })}
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="settings-section">
-              <h2>Androidウィジェット</h2>
-              <p className="notice">Android companionをインストールしたPixel 8へ、直近7日平均・今期残額・前日変動費だけを渡します。日記本文と写真は渡しません。</p>
-              <button className="wide" type="button" onClick={syncAndroidWidget}>ウィジェットを更新</button>
-            </section>
 
             <section className="settings-section">
               <h2>テンプレート編集</h2>

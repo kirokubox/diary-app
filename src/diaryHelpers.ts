@@ -1,23 +1,12 @@
-import { ENERGY_OPTIONS, MOOD_OPTIONS, PHOTO_MAX_COUNT, SLEEP_DAY_BOUNDARY_TIME } from "./constants";
+import { ENERGY_OPTIONS, MOOD_OPTIONS, PHOTO_MAX_COUNT } from "./constants";
 import { nowIsoLocal, weekdayOf } from "./dateUtils";
-import { buildSleepMetricsMap, expenseBreakdown, formatHoursCompact, formatMoneyCompact, getSleepMetrics, normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
-import type { SleepMetrics } from "./lifeMetrics";
+import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import { normalizePhotoMeta } from "./storage";
 import type { AppSettings, DiaryEntry, DiaryPhoto, Energy, Mood, ScratchItem } from "./types";
 
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
 export const NAP_HOUR_OPTIONS = Array.from({ length: 13 }, (_, index) => index * 0.5);
-
-export type SleepChartPoint = {
-  date: string;
-  label: string;
-  sleepHours: number | null;
-  napHours: number;
-  totalHours: number | null;
-  wakeTime: number | null;
-  bedTime: string | null;
-};
 
 export type ImportIssue = {
   index?: number;
@@ -97,10 +86,6 @@ export function cleanTag(tag: string): string {
   return tag.trim().replace(/^#+/, "");
 }
 
-export function sleepHoursMeta(value: number | null | undefined): string {
-  return typeof value === "number" ? `${value.toFixed(1)}h` : "";
-}
-
 export function parseHours(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
@@ -110,43 +95,9 @@ export function parseHours(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-export function parseWakeTime(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)$/);
-  if (!match) return null;
-  return Number(match[1]) + Number(match[2]) / 60;
-}
-
-export function formatWakeTick(value: number): string {
-  const wholeHours = Math.floor(value);
-  const minutes = Math.round((value - wholeHours) * 60);
-  return `${String(wholeHours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
 export function formatShortDate(date: string): string {
   const [, month, day] = date.split("-");
   return `${Number(month)}/${Number(day)}`;
-}
-
-export function rhythmMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
-  const metrics = sleep ?? getSleepMetrics(entry, undefined, SLEEP_DAY_BOUNDARY_TIME);
-  return [
-    entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
-    metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
-    metrics.napMinutes !== null ? `仮眠 ${formatHoursCompact(metrics.napMinutes)}` : "",
-  ].filter(Boolean);
-}
-
-// 一覧・検索のカード用。仮眠・満足費・反省費は当日の日記画面と既存グラフ側で見る
-export function cardMeta(entry: DiaryEntry, sleep?: SleepMetrics): string[] {
-  const metrics = sleep ?? getSleepMetrics(entry, undefined, SLEEP_DAY_BOUNDARY_TIME);
-  const expenses = expenseBreakdown(entry);
-  return [
-    entry.wakeUpTime ? `起床 ${entry.wakeUpTime}` : "",
-    metrics.totalMinutes !== null ? `睡眠 ${formatHoursCompact(metrics.totalMinutes)}` : "",
-    expenses.total !== null ? `全額 ${formatMoneyCompact(expenses.total)}` : "",
-    expenses.everyday !== null ? `日常 ${formatMoneyCompact(expenses.everyday)}` : "",
-  ].filter(Boolean);
 }
 
 export function makeScratchItem(text: string): ScratchItem {
@@ -378,36 +329,4 @@ export function validateImportedEntry(value: unknown, index: number): { entry?: 
     errors,
     warnings,
   };
-}
-
-export function buildSleepChartPoints(entries: DiaryEntry[], dayBoundaryTime: string): SleepChartPoint[] {
-  const metricsByDate = buildSleepMetricsMap(entries, dayBoundaryTime);
-  return [...entries]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-14)
-    .map((entry) => {
-      const metrics = metricsByDate.get(entry.date)!;
-      const sleepHours = metrics.nightMinutes === null ? null : metrics.nightMinutes / 60;
-      const napHours = (metrics.napMinutes ?? 0) / 60;
-      return {
-        date: entry.date,
-        label: formatShortDate(entry.date),
-        sleepHours,
-        napHours,
-        totalHours: metrics.totalMinutes === null ? null : metrics.totalMinutes / 60,
-        wakeTime: parseWakeTime(entry.wakeUpTime),
-        bedTime: metrics.resolvedPreviousBedAt
-          ? `${String(metrics.resolvedPreviousBedAt.getHours()).padStart(2, "0")}:${String(metrics.resolvedPreviousBedAt.getMinutes()).padStart(2, "0")}`
-          : null,
-      };
-    });
-}
-
-export function formatChartTime(value: number | null): string {
-  return value === null ? "-" : formatWakeTick(value);
-}
-
-export function sleepDetailDateLabel(date: string): string {
-  const [, month, day] = date.split("-");
-  return `${Number(month)}月${Number(day)}日（${weekdayOf(date)}）`;
 }

@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDays, timeOnly } from "./dateUtils";
 import { makeScratchItem } from "./diaryHelpers";
-import { expenseBreakdown, formatDurationJa, formatHoursCompact, formatMoneyCompact, napDraftToMinutes, resolveExpenseInput, toExpenseInputDraft, toNapDraft } from "./lifeMetrics";
-import type { ExpenseInputDraft, NapDraft, SleepMetrics } from "./lifeMetrics";
 import { PhotoSection } from "./PhotoSection";
 import type { DiaryEntry, DiaryPhoto, SaveState } from "./types";
 
 export function Editor({
   entry,
-  sleep,
   saveState,
   onChange,
   onManualSave,
@@ -23,7 +20,6 @@ export function Editor({
   onDeletePhoto,
 }: {
   entry: DiaryEntry;
-  sleep: SleepMetrics;
   saveState: SaveState;
   onChange: (entry: DiaryEntry) => void;
   onManualSave: () => void;
@@ -38,22 +34,11 @@ export function Editor({
   onDeletePhoto: (photo: DiaryPhoto) => Promise<boolean>;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
-  const [lifeExpanded, setLifeExpanded] = useState(false);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
   const [scratchDraft, setScratchDraft] = useState("");
-  const [expenseDraft, setExpenseDraft] = useState<ExpenseInputDraft>(() => toExpenseInputDraft(entry));
-  const [napDraft, setNapDraft] = useState<NapDraft>(() => toNapDraft(entry.napMinutes));
-
-  // 日付を移動したときだけ入力欄の下書きを作り直す。
-  // 自動保存で entry オブジェクトが差し替わるだけのときは、入力中の値をそのまま残す
-  useEffect(() => {
-    setExpenseDraft(toExpenseInputDraft(entry));
-    setNapDraft(toNapDraft(entry.napMinutes));
-  }, [entry.id]);
 
   useEffect(() => {
     setBodyExpanded(initialBodyExpanded);
-    setLifeExpanded(false);
     setFreeScratchExpanded(false);
     setScratchDraft("");
   }, [entry.id, initialBodyExpanded, bodyOpenVersion]);
@@ -68,27 +53,6 @@ export function Editor({
     if (!text) return;
     onChange({ ...entry, scratchItems: [makeScratchItem(text), ...entry.scratchItems] });
     setScratchDraft("");
-  }
-
-  const expenses = expenseBreakdown(entry);
-  const hasLifeInput = Boolean(
-    sleep.totalMinutes !== null || entry.wakeUpTime || entry.bedTime || entry.napMinutes !== null || expenses.total !== null,
-  );
-  // 満足費は入力せず、変動費全額 − 日常費 − 反省費 で求めて既存の satisfactionExpense へ保存する
-  const expenseError = resolveExpenseInput(expenseDraft).error;
-
-  function updateExpenseDraft(key: keyof ExpenseInputDraft, value: string) {
-    const next = { ...expenseDraft, [key]: value };
-    setExpenseDraft(next);
-    const resolved = resolveExpenseInput(next);
-    // 矛盾入力のあいだは保存へ反映せず、直前の正しい値を残す
-    if (resolved.values) onChange({ ...entry, ...resolved.values });
-  }
-
-  function updateNapDraft(key: keyof NapDraft, value: string) {
-    const next = { ...napDraft, [key]: value };
-    setNapDraft(next);
-    onChange({ ...entry, napMinutes: napDraftToMinutes(next) });
   }
 
   return (
@@ -118,34 +82,6 @@ export function Editor({
           翌日
         </button>
       </div>
-
-      <section className="life-card">
-        <button className="life-card-toggle" type="button" onClick={() => setLifeExpanded((expanded) => !expanded)} aria-expanded={lifeExpanded}>
-          <span><strong>生活</strong><small>{hasLifeInput ? `睡眠 ${formatHoursCompact(sleep.totalMinutes)}・お金 ${formatMoneyCompact(expenses.total)}` : "睡眠・お金を書く"}</small></span>
-          <span aria-hidden="true">{lifeExpanded ? "−" : "＋"}</span>
-        </button>
-        {lifeExpanded && (
-          <div className="life-grid">
-            <label>起床時間<input type="time" step="60" value={entry.wakeUpTime} onChange={(event) => onChange({ ...entry, wakeUpTime: event.target.value })} /></label>
-            <label>変動費全額<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.total} onChange={(event) => updateExpenseDraft("total", event.target.value)} placeholder="円" /></label>
-            <label>就寝時間<input type="time" step="60" value={entry.bedTime ?? ""} onChange={(event) => onChange({ ...entry, bedTime: event.target.value })} /></label>
-            <label>日常費<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.everyday} onChange={(event) => updateExpenseDraft("everyday", event.target.value)} placeholder="円" /></label>
-            <label>
-              仮眠時間
-              <span className="life-nap-row">
-                <input aria-label="仮眠時間（時間）" inputMode="numeric" min="0" max="23" step="1" type="number" value={napDraft.hours} onChange={(event) => updateNapDraft("hours", event.target.value)} placeholder="0" />
-                時間
-                <input aria-label="仮眠時間（分）" inputMode="numeric" min="0" max="59" step="1" type="number" value={napDraft.minutes} onChange={(event) => updateNapDraft("minutes", event.target.value)} placeholder="0" />
-                分
-              </span>
-            </label>
-            <label>反省費<input inputMode="numeric" min="0" step="1" type="number" value={expenseDraft.regret} onChange={(event) => updateExpenseDraft("regret", event.target.value)} placeholder="円" /></label>
-            <p className="life-total">睡眠合計 {formatDurationJa(sleep.totalMinutes)}</p>
-            <p className="life-total">満足費 {expenseError ? "−" : formatMoneyCompact(expenses.satisfaction)}</p>
-            {expenseError && <p className="life-error">{expenseError}</p>}
-          </div>
-        )}
-      </section>
 
       <section className="field-group body-area">
         <label>日記・振り返りを書く</label>

@@ -18,6 +18,52 @@ export function addDays(dateText: string, days: number): string {
   return toDateInputValue(date);
 }
 
+export function weekStartOf(dateText: string): string {
+  const date = new Date(`${dateText}T00:00:00`);
+  const day = date.getDay();
+  return addDays(dateText, day === 0 ? -6 : 1 - day);
+}
+
+export function weekEndOf(dateText: string): string {
+  return addDays(weekStartOf(dateText), 6);
+}
+
+export function monthOf(dateText: string): string {
+  return dateText.slice(0, 7);
+}
+
+export function addMonths(monthText: string, months: number): string {
+  const [year, month] = monthText.split("-").map(Number);
+  const date = new Date(year, month - 1 + months, 1);
+  return toDateInputValue(date).slice(0, 7);
+}
+
+export function isFirstDayOfMonth(dateText: string): boolean {
+  return dateText.endsWith("-01");
+}
+
+export function isLastDayOfMonth(dateText: string): boolean {
+  return addDays(dateText, 1).slice(0, 7) !== dateText.slice(0, 7);
+}
+
+export function isSunday(dateText: string): boolean {
+  return weekdayOf(dateText) === "日";
+}
+
+// 一覧では「その週の日曜日が属する月」に週を1回だけ表示する
+export function weekStartsEndingInMonth(monthText: string): string[] {
+  const firstDate = `${monthText}-01`;
+  const first = new Date(`${firstDate}T00:00:00`);
+  const daysUntilSunday = (7 - first.getDay()) % 7;
+  const starts: string[] = [];
+  let sunday = addDays(firstDate, daysUntilSunday);
+  while (sunday.slice(0, 7) === monthText) {
+    starts.push(addDays(sunday, -6));
+    sunday = addDays(sunday, 7);
+  }
+  return starts;
+}
+
 export function nowIsoLocal(): string {
   const date = new Date();
   const offset = -date.getTimezoneOffset();

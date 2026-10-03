@@ -53,6 +53,22 @@ export interface DiaryEntry {
   updatedAt: string;
 }
 
+export interface WeeklyReview {
+  weekStart: string;
+  goalTheme: string;
+  reflection: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MonthlyReview {
+  month: string;
+  goalTheme: string;
+  reflection: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppSettings {
   template: string;
   tagOptions: string[];
@@ -68,6 +84,8 @@ export interface DiaryExport {
   exportedAt: string;
   settings: AppSettings;
   entries: DiaryEntry[];
+  weeklyReviews: WeeklyReview[];
+  monthlyReviews: MonthlyReview[];
 }
 
 export type TabKey = "today" | "list" | "search" | "settings";

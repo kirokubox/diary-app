@@ -3,7 +3,9 @@ import test from "node:test";
 import { normalizeImportedEntry, validateImportedEntry } from "../src/diaryHelpers";
 import { normalizeOptionalMoney, parseTimeMinutes } from "../src/lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "../src/markdown";
-import type { DiaryEntry } from "../src/types";
+import { weekStartOf, weekStartsEndingInMonth } from "../src/dateUtils";
+import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "../src/periodReviews";
+import type { DiaryEntry, MonthlyReview, WeeklyReview } from "../src/types";
 
 function entry(date: string, patch: Partial<DiaryEntry> = {}): DiaryEntry {
   return {
@@ -102,4 +104,73 @@ test("正規化用の関数は従来どおり動く", () => {
   assert.equal(normalizeOptionalMoney("1200"), 1200);
   assert.equal(normalizeOptionalMoney(""), null);
   assert.equal(normalizeOptionalMoney(-5), null);
+});
+
+const stamp = "2026-10-01T00:00:00+09:00";
+
+function weekly(weekStart: string, goalTheme: string, reflection: string): WeeklyReview {
+  return { weekStart, goalTheme, reflection, createdAt: stamp, updatedAt: stamp };
+}
+
+function monthly(month: string, goalTheme: string, reflection: string): MonthlyReview {
+  return { month, goalTheme, reflection, createdAt: stamp, updatedAt: stamp };
+}
+
+test("週は月曜始まりで、一覧は日曜日が属する月へ一度だけ出す", () => {
+  assert.equal(weekStartOf("2026-10-04"), "2026-09-28");
+  assert.equal(weekStartOf("2026-10-05"), "2026-10-05");
+  assert.deepEqual(weekStartsEndingInMonth("2026-10"), [
+    "2026-09-28",
+    "2026-10-05",
+    "2026-10-12",
+    "2026-10-19",
+  ]);
+  assert.ok(!weekStartsEndingInMonth("2026-09").includes("2026-09-28"));
+});
+
+test("週次・月次の長文と改行は正規化してもそのまま残る", () => {
+  const longGoal = `優先順位を合わせる。\n\n理由や迷いも原文のまま残す。${"長文".repeat(500)}`;
+  const week = normalizeWeeklyReview(weekly("2026-09-28", longGoal, "週の振り返り\n二段落目"));
+  const month = normalizeMonthlyReview(monthly("2026-10", longGoal, "月の振り返り\n二段落目"));
+  assert.equal(week?.goalTheme, longGoal);
+  assert.equal(week?.reflection, "週の振り返り\n二段落目");
+  assert.equal(month?.goalTheme, longGoal);
+  assert.equal(month?.reflection, "月の振り返り\n二段落目");
+});
+
+test("日曜日のMarkdownは今週の振り返りと来週目標を全文出す", () => {
+  const current = weekly("2026-09-28", "今週目標", "今週の長文振り返り\n二段落目");
+  const next = weekly("2026-10-05", "来週の長文目標\n理由も残す", "");
+  const markdown = entryToMarkdown(
+    entry("2026-10-04", { weekday: "日" }),
+    periodContextForDate("2026-10-04", [current, next], []),
+  );
+  assert.match(markdown, /### 本人の今週の振り返り\n\n今週の長文振り返り\n二段落目/);
+  assert.match(markdown, /### 本人の来週の目標・テーマ\n\n来週の長文目標\n理由も残す/);
+});
+
+test("月初と月末のMarkdownは同じ月次データを正しい見出しで出す", () => {
+  const september = monthly("2026-09", "9月目標", "9月の振り返り全文");
+  const october = monthly("2026-10", "10月の目標全文", "10月の振り返り全文");
+  const november = monthly("2026-11", "11月の目標全文", "");
+  const reviews = [september, october, november];
+  const first = entryToMarkdown(entry("2026-10-01", { weekday: "木" }), periodContextForDate("2026-10-01", [], reviews));
+  const last = entryToMarkdown(entry("2026-10-31", { weekday: "土" }), periodContextForDate("2026-10-31", [], reviews));
+  assert.match(first, /### 本人の先月の振り返り\n\n9月の振り返り全文/);
+  assert.match(first, /### 本人の今月の目標・テーマ\n\n10月の目標全文/);
+  assert.match(last, /### 本人の今月の振り返り\n\n10月の振り返り全文/);
+  assert.match(last, /### 本人の来月の目標・テーマ\n\n11月の目標全文/);
+});
+
+test("全件Markdownは対応する日記が無くても週次・月次原文を全文出す", () => {
+  const weekGoal = "  週の目標\n理由を含む長文  ";
+  const monthReflection = "月の振り返り\n\n複数段落の原文";
+  const markdown = entriesToMarkdown(
+    [],
+    [weekly("2026-10-05", weekGoal, "週の振り返り")],
+    [monthly("2026-10", "月の目標", monthReflection)],
+  );
+  assert.ok(markdown.includes(weekGoal));
+  assert.ok(markdown.includes(monthReflection));
+  assert.match(markdown, /# 週次・月次記録/);
 });

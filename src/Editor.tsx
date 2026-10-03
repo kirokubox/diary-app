@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { addDays, timeOnly } from "./dateUtils";
 import { makeScratchItem } from "./diaryHelpers";
 import { PhotoSection } from "./PhotoSection";
-import type { DiaryEntry, DiaryPhoto, SaveState } from "./types";
+import { BoundaryReviewEntries, PeriodGoalSummary } from "./PeriodReviewUI";
+import { monthOf, weekStartOf } from "./dateUtils";
+import type { DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, WeeklyReview } from "./types";
 
 export function Editor({
   entry,
@@ -18,6 +20,10 @@ export function Editor({
   photoNotice,
   onAddPhotos,
   onDeletePhoto,
+  weeklyReviews,
+  monthlyReviews,
+  onSaveWeeklyReview,
+  onSaveMonthlyReview,
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
@@ -32,6 +38,10 @@ export function Editor({
   photoNotice: string;
   onAddPhotos: (files: File[]) => void | Promise<void>;
   onDeletePhoto: (photo: DiaryPhoto) => Promise<boolean>;
+  weeklyReviews: WeeklyReview[];
+  monthlyReviews: MonthlyReview[];
+  onSaveWeeklyReview: (weekStart: string, goalTheme: string, reflection: string) => void | Promise<void>;
+  onSaveMonthlyReview: (month: string, goalTheme: string, reflection: string) => void | Promise<void>;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
@@ -82,6 +92,19 @@ export function Editor({
           翌日
         </button>
       </div>
+
+      <PeriodGoalSummary
+        weekly={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
+        monthly={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
+      />
+
+      <BoundaryReviewEntries
+        date={entry.date}
+        weeklyReviews={weeklyReviews}
+        monthlyReviews={monthlyReviews}
+        onSaveWeekly={onSaveWeeklyReview}
+        onSaveMonthly={onSaveMonthlyReview}
+      />
 
       <section className="field-group body-area">
         <label>日記・振り返りを書く</label>

@@ -2,7 +2,7 @@ import { ENERGY_OPTIONS, MOOD_OPTIONS, PHOTO_MAX_COUNT } from "./constants";
 import { nowIsoLocal, weekdayOf } from "./dateUtils";
 import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import { normalizePhotoMeta } from "./storage";
-import type { AppSettings, DiaryEntry, DiaryPhoto, Energy, Mood, ScratchItem } from "./types";
+import type { AppSettings, DiaryEntry, DiaryPhoto, Energy, MonthlyReview, Mood, ScratchItem, WeeklyReview } from "./types";
 
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const SLEEP_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => (index + 1) * 0.5);
@@ -35,6 +35,8 @@ export type ImportPreview = {
   fileName: string;
   total: number;
   addableEntries: DiaryEntry[];
+  addableWeeklyReviews: WeeklyReview[];
+  addableMonthlyReviews: MonthlyReview[];
   skippedEntries: ImportSkip[];
   errors: ImportIssue[];
   warnings: ImportIssue[];
@@ -46,7 +48,7 @@ export type ImportPreview = {
 
 export const PHOTO_BACKUP_README = `季節日記 写真つきバックアップ
 
-- diary-backup.json … 日記本文・睡眠・らくがきメモ・設定（通常のJSONバックアップと同じ形式）
+- diary-backup.json … 日記本文・週次／月次の目標と振り返り・設定（通常のJSONバックアップと同じ形式）
 - photos/日付/連番_写真ID.webp … 写真の画像ファイル（長辺1600pxへ縮小済み・EXIFなし）
 - photos.json … 画像ファイルと日記を結びつける一覧
 

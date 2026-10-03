@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
 import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
-import { monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, yearsAgoExact } from "./dateUtils";
+import { monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
 import { Editor } from "./Editor";
@@ -9,11 +9,13 @@ import { downloadBlob, downloadText } from "./fileUtils";
 import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
 import { MemoryCard } from "./MemoryCard";
+import { MonthlyReviewHub } from "./PeriodReviewUI";
+import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "./periodReviews";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { ReadingView } from "./ReadingView";
-import { clearEntries, clearPhotos, clearSettings, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllPhotoIds, getAllPhotos, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveSettings } from "./storage";
+import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
 import { buildSearchSnippet } from "./summary";
-import type { AppSettings, DiaryEntry, DiaryPhoto, SaveState, ScratchItem, TabKey } from "./types";
+import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
 import { createZipBlob, readZipEntries } from "./zip";
 import type { ZipInputFile } from "./zip";
 
@@ -21,6 +23,9 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("today");
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const [weeklyReviews, setWeeklyReviews] = useState<WeeklyReview[]>([]);
+  const [monthlyReviews, setMonthlyReviews] = useState<MonthlyReview[]>([]);
+  const [selectedReviewMonth, setSelectedReviewMonth] = useState(monthOf(toDateInputValue()));
   const [activeDate, setActiveDate] = useState(toDateInputValue());
   const [entry, setEntry] = useState<DiaryEntry | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -48,6 +53,8 @@ export default function App() {
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importResult, setImportResult] = useState<{
     added: number;
+    weeklyAdded: number;
+    monthlyAdded: number;
     skipped: ImportSkip[];
     errors: number;
     restoredPhotos: number;
@@ -77,10 +84,16 @@ export default function App() {
       const loadedSettings = await getSettings();
       const initialDate = toDateInputValue();
       const loadedEntry = await getEntry(initialDate);
-      const loadedEntries = await getAllEntries();
+      const [loadedEntries, loadedWeeklyReviews, loadedMonthlyReviews] = await Promise.all([
+        getAllEntries(),
+        getAllWeeklyReviews(),
+        getAllMonthlyReviews(),
+      ]);
       setSettings(loadedSettings);
       setTemplateDraft(loadedSettings.template);
       setEntries(loadedEntries);
+      setWeeklyReviews(loadedWeeklyReviews);
+      setMonthlyReviews(loadedMonthlyReviews);
       setActiveDate(initialDate);
       setEntry(loadedEntry ?? makeEntry(initialDate, loadedSettings));
       hydrated.current = true;
@@ -178,6 +191,34 @@ export default function App() {
     setEntry(saved);
     await refreshEntries();
     setSaveState("saved");
+  }
+
+  async function persistWeeklyReview(weekStart: string, goalTheme: string, reflection: string) {
+    const existing = weeklyReviews.find((item) => item.weekStart === weekStart);
+    const stamp = nowIsoLocal();
+    await saveWeeklyReview({
+      weekStart,
+      goalTheme,
+      reflection,
+      createdAt: existing?.createdAt ?? stamp,
+      updatedAt: stamp,
+    });
+    setWeeklyReviews(await getAllWeeklyReviews());
+    notify("週次記録を保存しました");
+  }
+
+  async function persistMonthlyReview(month: string, goalTheme: string, reflection: string) {
+    const existing = monthlyReviews.find((item) => item.month === month);
+    const stamp = nowIsoLocal();
+    await saveMonthlyReview({
+      month,
+      goalTheme,
+      reflection,
+      createdAt: existing?.createdAt ?? stamp,
+      updatedAt: stamp,
+    });
+    setMonthlyReviews(await getAllMonthlyReviews());
+    notify("月次記録を保存しました");
   }
 
   function updateEntry(next: DiaryEntry) {
@@ -323,14 +364,25 @@ export default function App() {
   async function exportEntryMarkdown() {
     if (!entry) return;
     await persistEntry(entry);
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown({ ...entry, updatedAt: nowIsoLocal() }), "text/markdown");
+    downloadText(
+      `diary-${entry.date}.md`,
+      entryToMarkdown(
+        { ...entry, updatedAt: nowIsoLocal() },
+        periodContextForDate(entry.date, weeklyReviews, monthlyReviews),
+      ),
+      "text/markdown",
+    );
     notify("Markdownをエクスポートしました");
   }
 
   // 閲覧モード用。保存を伴わない(未作成日にテンプレだけの日記を作らない)
   function exportEntryMarkdownWithoutSave() {
     if (!entry) return;
-    downloadText(`diary-${entry.date}.md`, entryToMarkdown(entry), "text/markdown");
+    downloadText(
+      `diary-${entry.date}.md`,
+      entryToMarkdown(entry, periodContextForDate(entry.date, weeklyReviews, monthlyReviews)),
+      "text/markdown",
+    );
     notify("Markdownをエクスポートしました");
   }
 
@@ -426,6 +478,8 @@ export default function App() {
       exportedAt: nowIsoLocal(),
       settings,
       entries,
+      weeklyReviews,
+      monthlyReviews,
     };
     downloadText(
       `diary-backup-${toDateInputValue()}.json`,
@@ -435,7 +489,11 @@ export default function App() {
   }
 
   function exportMarkdown() {
-    downloadText(`diary-export-${toDateInputValue()}.md`, entriesToMarkdown(entries), "text/markdown");
+    downloadText(
+      `diary-export-${toDateInputValue()}.md`,
+      entriesToMarkdown(entries, weeklyReviews, monthlyReviews),
+      "text/markdown",
+    );
   }
 
   // 通常JSONと写真つきZIP内のJSONで共通に使う検証。写真の画像そのものは扱わない
@@ -451,6 +509,8 @@ export default function App() {
     const jsonIds = new Set<string>();
     const jsonDates = new Set<string>();
     const addableEntries: DiaryEntry[] = [];
+    const addableWeeklyReviews: WeeklyReview[] = [];
+    const addableMonthlyReviews: MonthlyReview[] = [];
     const skippedEntries: ImportSkip[] = [];
     const errors: ImportIssue[] = [];
     const warnings: ImportIssue[] = [];
@@ -483,6 +543,59 @@ export default function App() {
       addableEntries.push(entry);
     });
 
+    if ("weeklyReviews" in data && !Array.isArray((data as { weeklyReviews?: unknown }).weeklyReviews)) {
+      errors.push({ message: "weeklyReviews は配列にしてください。" });
+    }
+    if ("monthlyReviews" in data && !Array.isArray((data as { monthlyReviews?: unknown }).monthlyReviews)) {
+      errors.push({ message: "monthlyReviews は配列にしてください。" });
+    }
+    const rawWeeklyReviews = Array.isArray((data as { weeklyReviews?: unknown }).weeklyReviews)
+      ? ((data as { weeklyReviews: unknown[] }).weeklyReviews)
+      : [];
+    const rawMonthlyReviews = Array.isArray((data as { monthlyReviews?: unknown }).monthlyReviews)
+      ? ((data as { monthlyReviews: unknown[] }).monthlyReviews)
+      : [];
+    const existingWeekStarts = new Set((await getAllWeeklyReviews()).map((item) => item.weekStart));
+    const existingMonths = new Set((await getAllMonthlyReviews()).map((item) => item.month));
+    const incomingWeekStarts = new Set<string>();
+    const incomingMonths = new Set<string>();
+
+    rawWeeklyReviews.forEach((item, zeroBasedIndex) => {
+      const review = normalizeWeeklyReview(item);
+      if (!review) {
+        errors.push({ message: `週次記録${zeroBasedIndex + 1}件目の形式が正しくありません。` });
+        return;
+      }
+      if (incomingWeekStarts.has(review.weekStart)) {
+        errors.push({ date: review.weekStart, message: "同じJSON内で週次記録が重複しています。" });
+        return;
+      }
+      incomingWeekStarts.add(review.weekStart);
+      if (existingWeekStarts.has(review.weekStart)) {
+        warnings.push({ date: review.weekStart, message: "既存の週次記録があるためスキップします。" });
+        return;
+      }
+      addableWeeklyReviews.push(review);
+    });
+
+    rawMonthlyReviews.forEach((item, zeroBasedIndex) => {
+      const review = normalizeMonthlyReview(item);
+      if (!review) {
+        errors.push({ message: `月次記録${zeroBasedIndex + 1}件目の形式が正しくありません。` });
+        return;
+      }
+      if (incomingMonths.has(review.month)) {
+        errors.push({ date: review.month, message: "同じJSON内で月次記録が重複しています。" });
+        return;
+      }
+      incomingMonths.add(review.month);
+      if (existingMonths.has(review.month)) {
+        warnings.push({ date: review.month, message: "既存の月次記録があるためスキップします。" });
+        return;
+      }
+      addableMonthlyReviews.push(review);
+    });
+
     const settingsFound = "settings" in data;
     const rawSettings = settingsFound ? (data as { settings?: unknown }).settings : null;
     const importedSettings = rawSettings && typeof rawSettings === "object"
@@ -507,6 +620,8 @@ export default function App() {
       fileName,
       total: incoming.length,
       addableEntries,
+      addableWeeklyReviews,
+      addableMonthlyReviews,
       skippedEntries,
       errors,
       warnings,
@@ -539,7 +654,11 @@ export default function App() {
   async function exportPhotoZip() {
     setZipBusy(true);
     try {
-      const allEntries = await getAllEntries();
+      const [allEntries, allWeeklyReviews, allMonthlyReviews] = await Promise.all([
+        getAllEntries(),
+        getAllWeeklyReviews(),
+        getAllMonthlyReviews(),
+      ]);
       const storedPhotos = await getAllPhotos();
       const photoById = new Map(storedPhotos.map((photo) => [photo.id, photo]));
       const files: ZipInputFile[] = [];
@@ -577,6 +696,8 @@ export default function App() {
         exportedAt,
         settings,
         entries: allEntries,
+        weeklyReviews: allWeeklyReviews,
+        monthlyReviews: allMonthlyReviews,
       };
       const zip = await createZipBlob(
         [
@@ -665,12 +786,20 @@ export default function App() {
       for (const item of importPreview.addableEntries) {
         await saveEntry(item);
       }
+      for (const item of importPreview.addableWeeklyReviews) {
+        await saveWeeklyReview(item);
+      }
+      for (const item of importPreview.addableMonthlyReviews) {
+        await saveMonthlyReview(item);
+      }
       if (importPreview.importedSettings) {
         await saveSettings(importPreview.importedSettings);
         setSettings(importPreview.importedSettings);
         setTemplateDraft(importPreview.importedSettings.template);
       }
       await refreshEntries();
+      setWeeklyReviews(await getAllWeeklyReviews());
+      setMonthlyReviews(await getAllMonthlyReviews());
 
       // 本文を追加したあと、日記から参照されている写真だけを復元する。
       // すでに端末にある画像は上書きしない（本文が既存でも、画像が失われている日は復元できる）
@@ -699,16 +828,20 @@ export default function App() {
 
       setImportResult({
         added: importPreview.addableEntries.length,
+        weeklyAdded: importPreview.addableWeeklyReviews.length,
+        monthlyAdded: importPreview.addableMonthlyReviews.length,
         skipped: importPreview.skippedEntries,
         errors: importPreview.errors.length,
         restoredPhotos,
       });
       setImportPreview(null);
-      notify(
-        restoredPhotos > 0
-          ? `インポート完了：${importPreview.addableEntries.length}件と写真${restoredPhotos}枚を追加しました`
-          : `インポート完了：${importPreview.addableEntries.length}件を追加しました`,
-      );
+      const importCounts = [
+        `日記${importPreview.addableEntries.length}件`,
+        `週次${importPreview.addableWeeklyReviews.length}件`,
+        `月次${importPreview.addableMonthlyReviews.length}件`,
+        ...(restoredPhotos > 0 ? [`写真${restoredPhotos}枚`] : []),
+      ];
+      notify(`インポート完了：${importCounts.join("・")}を追加しました`);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "インポートに失敗しました。");
     }
@@ -733,12 +866,16 @@ export default function App() {
     const typed = window.prompt("全データを削除するには「削除」と入力してください。");
     if (typed !== "削除") return;
     await clearEntries();
+    await clearWeeklyReviews();
+    await clearMonthlyReviews();
     await clearPhotos();
     setPhotoStoreVersion((version) => version + 1);
     await clearSettings();
     setSettings(DEFAULT_SETTINGS);
     setTemplateDraft(DEFAULT_SETTINGS.template);
     setEntries([]);
+    setWeeklyReviews([]);
+    setMonthlyReviews([]);
     setEntry(makeEntry(activeDate, DEFAULT_SETTINGS));
     notify("全データを削除しました");
   }
@@ -755,6 +892,8 @@ export default function App() {
               onMoveDate={openDateForReading}
               onStartEditing={startEditing}
               onExportMarkdown={exportEntryMarkdownWithoutSave}
+              weeklyReview={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
+              monthlyReview={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
             />
           ) : (
             <Editor
@@ -771,6 +910,10 @@ export default function App() {
               photoNotice={photoNotice}
               onAddPhotos={addPhotos}
               onDeletePhoto={removePhoto}
+              weeklyReviews={weeklyReviews}
+              monthlyReviews={monthlyReviews}
+              onSaveWeeklyReview={persistWeeklyReview}
+              onSaveMonthlyReview={persistMonthlyReview}
             />
           )
         )}
@@ -784,6 +927,14 @@ export default function App() {
               </div>
               <span className="count">{entries.length}件</span>
             </header>
+            <MonthlyReviewHub
+              selectedMonth={selectedReviewMonth}
+              onMonthChange={setSelectedReviewMonth}
+              weeklyReviews={weeklyReviews}
+              monthlyReviews={monthlyReviews}
+              onSaveWeekly={persistWeeklyReview}
+              onSaveMonthly={persistMonthlyReview}
+            />
             <section className="list-section">
               <h2 className="list-section-title">最近の日記</h2>
               {recentEntries.length === 0 ? (
@@ -936,6 +1087,8 @@ export default function App() {
                   <div className="import-summary">
                     <span>読み込み件数：{importPreview.total}件</span>
                     <span>新規追加：{importPreview.addableEntries.length}件</span>
+                    <span>週次追加：{importPreview.addableWeeklyReviews.length}件</span>
+                    <span>月次追加：{importPreview.addableMonthlyReviews.length}件</span>
                     <span>重複：{importPreview.skippedEntries.length}件</span>
                     <span>エラー：{importPreview.errors.length}件</span>
                     <span>警告：{importPreview.warnings.length}件</span>
@@ -995,7 +1148,10 @@ export default function App() {
                       className="primary"
                       disabled={
                         importPreview.errors.length > 0 ||
-                        (importPreview.addableEntries.length === 0 && importPreview.zipPhotos.length === 0)
+                        (importPreview.addableEntries.length === 0 &&
+                          importPreview.addableWeeklyReviews.length === 0 &&
+                          importPreview.addableMonthlyReviews.length === 0 &&
+                          importPreview.zipPhotos.length === 0)
                       }
                       onClick={() => void addNewEntriesFromImport()}
                       type="button"
@@ -1018,6 +1174,8 @@ export default function App() {
                   <h3>インポート完了</h3>
                   <div className="import-summary">
                     <span>追加：{importResult.added}件</span>
+                    <span>週次：{importResult.weeklyAdded}件</span>
+                    <span>月次：{importResult.monthlyAdded}件</span>
                     <span>スキップ：{importResult.skipped.length}件</span>
                     <span>エラー：{importResult.errors}件</span>
                     <span>写真復元：{importResult.restoredPhotos}枚</span>

@@ -294,6 +294,191 @@ main {
   font-size: 1rem;
 }
 
+.period-goals {
+  display: grid;
+  gap: 0;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid #c8dadd;
+  border-radius: 10px;
+  background: #f9fcfc;
+}
+
+.period-goal-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-items: start;
+  padding: 9px 11px;
+}
+
+.period-goal-item + .period-goal-item {
+  border-top: 1px solid #e0eaec;
+}
+
+.period-goal-item.primary-goal {
+  background: #f1f8f7;
+}
+
+.period-goal-label {
+  color: #426a70;
+  font-size: 0.79rem;
+  font-weight: 900;
+  line-height: 1.55;
+}
+
+.period-goal-text {
+  min-width: 0;
+  color: #30414a;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.period-goal-text.week-preview,
+.period-goal-text.month-preview,
+.period-record-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.period-goal-text.week-preview {
+  -webkit-line-clamp: 3;
+}
+
+.period-goal-text.month-preview {
+  -webkit-line-clamp: 2;
+}
+
+.text-toggle {
+  min-height: 0;
+  border: 0;
+  padding: 1px 0;
+  background: transparent;
+  color: #507c8d;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.period-entry-area {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.boundary-review,
+.period-editor-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.period-entry-toggle {
+  min-height: 44px;
+  border-style: dashed;
+  color: #456b78;
+}
+
+.period-editor-panel {
+  border: 1px solid #d5e0e3;
+  border-radius: 10px;
+  padding: 13px;
+  background: #ffffff;
+}
+
+.period-goal-input {
+  min-height: 190px;
+}
+
+.period-reflection-input {
+  min-height: 300px;
+}
+
+.monthly-review-hub {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 22px;
+  border: 1px solid #c8dadd;
+  border-radius: 10px;
+  padding: 13px;
+  background: #f7fbfb;
+}
+
+.monthly-review-hub > h2 {
+  color: #395664;
+  font-size: 1.08rem;
+}
+
+.month-switcher {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.month-switcher input {
+  min-width: 0;
+}
+
+.week-records-title {
+  margin: 4px 0 0;
+  color: #45606b;
+  font-size: 0.96rem;
+}
+
+.period-record-list {
+  display: grid;
+  gap: 8px;
+}
+
+.period-record {
+  overflow: hidden;
+  border: 1px solid #d5e0e3;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.period-record-heading {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+
+.period-record-preview {
+  margin: -2px 13px 11px;
+  color: #52646c;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 3;
+}
+
+.period-record-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 13px 13px;
+}
+
+.period-record-body h3 {
+  margin: 5px 0 0;
+  color: #45606b;
+  font-size: 0.88rem;
+}
+
+.period-record-body p {
+  color: #30414a;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .body-panel {
   display: grid;
   gap: 12px;
@@ -899,6 +1084,23 @@ main {
   .body-area textarea {
     min-height: 34vh;
     font-size: 1.02rem;
+  }
+
+  .period-goal-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .period-goal-item .text-toggle {
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  .period-goal-input {
+    min-height: 220px;
+  }
+
+  .period-reflection-input {
+    min-height: 42vh;
   }
 
   .scratch-area textarea {

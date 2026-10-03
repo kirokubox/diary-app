@@ -1,7 +1,8 @@
 import { addDays, timeOnly } from "./dateUtils";
 import { PhotoSection } from "./PhotoSection";
 import { classifyBodyLines } from "./summary";
-import type { DiaryEntry } from "./types";
+import { PeriodGoalSummary } from "./PeriodReviewUI";
+import type { DiaryEntry, MonthlyReview, WeeklyReview } from "./types";
 
 export function ReadingView({
   entry,
@@ -9,12 +10,16 @@ export function ReadingView({
   onMoveDate,
   onStartEditing,
   onExportMarkdown,
+  weeklyReview,
+  monthlyReview,
 }: {
   entry: DiaryEntry;
   exists: boolean;
   onMoveDate: (date: string) => void | Promise<void>;
   onStartEditing: () => void;
   onExportMarkdown: () => void;
+  weeklyReview?: WeeklyReview;
+  monthlyReview?: MonthlyReview;
 }) {
   const scratchText = entry.scratch.trim();
   const sortedScratchItems = [...entry.scratchItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -43,6 +48,8 @@ export function ReadingView({
           翌日
         </button>
       </div>
+
+      <PeriodGoalSummary weekly={weeklyReview} monthly={monthlyReview} />
 
       {!exists ? (
         <div className="reading-empty-state">

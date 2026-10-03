@@ -19,6 +19,7 @@ async function compile(sourcePath, outputName, replacements = []) {
 await compile("src/dateUtils.ts", "dateUtils.mjs");
 await compile("src/constants.ts", "constants.mjs");
 await compile("src/lifeMetrics.ts", "lifeMetrics.mjs");
+await compile("src/periodReviews.ts", "periodReviews.mjs", [["./dateUtils", "./dateUtils.mjs"]]);
 await compile("src/storage.ts", "storage.mjs", [
   ["./constants", "./constants.mjs"],
   ["./lifeMetrics", "./lifeMetrics.mjs"],
@@ -29,9 +30,14 @@ await compile("src/diaryHelpers.ts", "diaryHelpers.mjs", [
   ["./lifeMetrics", "./lifeMetrics.mjs"],
   ["./storage", "./storage.mjs"],
 ]);
-await compile("src/markdown.ts", "markdown.mjs", [["./dateUtils", "./dateUtils.mjs"]]);
+await compile("src/markdown.ts", "markdown.mjs", [
+  ["./dateUtils", "./dateUtils.mjs"],
+  ["./periodReviews", "./periodReviews.mjs"],
+]);
 await compile("tests/lifeMetrics.test.ts", "lifeMetrics.test.mjs", [
+  ["../src/dateUtils", "./dateUtils.mjs"],
   ["../src/diaryHelpers", "./diaryHelpers.mjs"],
   ["../src/lifeMetrics", "./lifeMetrics.mjs"],
   ["../src/markdown", "./markdown.mjs"],
+  ["../src/periodReviews", "./periodReviews.mjs"],
 ]);

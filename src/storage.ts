@@ -1,13 +1,15 @@
 import { DEFAULT_SETTINGS } from "./constants";
 import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
-import type { AppSettings, DiaryEntry, DiaryPhoto, StoredPhoto } from "./types";
+import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, StoredPhoto, WeeklyReview } from "./types";
 
 const DB_NAME = "yuki-diary-app";
-// v1 → v2 で photos ストアを追加（既存の entries / settings は変更していない）
-const DB_VERSION = 2;
+// v2でphotos、v3で週次・月次ストアを追加（既存ストアは変更していない）
+const DB_VERSION = 3;
 const ENTRY_STORE = "entries";
 const SETTINGS_STORE = "settings";
 const PHOTO_STORE = "photos";
+const WEEKLY_REVIEW_STORE = "weeklyReviews";
+const MONTHLY_REVIEW_STORE = "monthlyReviews";
 const SETTINGS_KEY = "app";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -87,6 +89,12 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(PHOTO_STORE)) {
         db.createObjectStore(PHOTO_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(WEEKLY_REVIEW_STORE)) {
+        db.createObjectStore(WEEKLY_REVIEW_STORE, { keyPath: "weekStart" });
+      }
+      if (!db.objectStoreNames.contains(MONTHLY_REVIEW_STORE)) {
+        db.createObjectStore(MONTHLY_REVIEW_STORE, { keyPath: "month" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -211,4 +219,32 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 
 export async function clearSettings(): Promise<void> {
   await store<undefined>(SETTINGS_STORE, "readwrite", (s) => s.clear());
+}
+
+export async function getAllWeeklyReviews(): Promise<WeeklyReview[]> {
+  return store<WeeklyReview[]>(WEEKLY_REVIEW_STORE, "readonly", (s) => s.getAll()).then((items) =>
+    items.sort((a, b) => b.weekStart.localeCompare(a.weekStart)),
+  );
+}
+
+export async function saveWeeklyReview(review: WeeklyReview): Promise<void> {
+  await store<IDBValidKey>(WEEKLY_REVIEW_STORE, "readwrite", (s) => s.put(review));
+}
+
+export async function clearWeeklyReviews(): Promise<void> {
+  await store<undefined>(WEEKLY_REVIEW_STORE, "readwrite", (s) => s.clear());
+}
+
+export async function getAllMonthlyReviews(): Promise<MonthlyReview[]> {
+  return store<MonthlyReview[]>(MONTHLY_REVIEW_STORE, "readonly", (s) => s.getAll()).then((items) =>
+    items.sort((a, b) => b.month.localeCompare(a.month)),
+  );
+}
+
+export async function saveMonthlyReview(review: MonthlyReview): Promise<void> {
+  await store<IDBValidKey>(MONTHLY_REVIEW_STORE, "readwrite", (s) => s.put(review));
+}
+
+export async function clearMonthlyReviews(): Promise<void> {
+  await store<undefined>(MONTHLY_REVIEW_STORE, "readwrite", (s) => s.clear());
 }

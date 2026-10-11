@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { addDays, timeOnly } from "./dateUtils";
+import { monthOf, timeOnly, weekStartOf } from "./dateUtils";
 import { makeScratchItem } from "./diaryHelpers";
+import { Icon } from "./Icon";
 import { PhotoSection } from "./PhotoSection";
 import { BoundaryReviewEntries, PeriodGoalSummary } from "./PeriodReviewUI";
-import { monthOf, weekStartOf } from "./dateUtils";
+import { countBodyFields } from "./summary";
 import type { DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, WeeklyReview } from "./types";
+import { AppBar, DateSwitcher, OverflowMenu } from "./ui";
 
 export function Editor({
   entry,
   saveState,
   onChange,
-  onManualSave,
   onExportMarkdown,
   onMoveDate,
   onDelete,
@@ -28,7 +29,6 @@ export function Editor({
   entry: DiaryEntry;
   saveState: SaveState;
   onChange: (entry: DiaryEntry) => void;
-  onManualSave: () => void;
   onExportMarkdown: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
@@ -58,6 +58,13 @@ export function Editor({
     [entry.scratchItems],
   );
 
+  const bodyStatus = useMemo(() => {
+    const { filled, total, hasText } = countBodyFields(entry.body);
+    if (filled > 0) return `${total}項目中${filled}つ記入`;
+    return hasText ? "記入あり" : "未記入";
+  }, [entry.body]);
+  const scratchLength = entry.scratch.trim().length;
+
   function addScratchItem() {
     const text = scratchDraft.trim();
     if (!text) return;
@@ -67,132 +74,125 @@ export function Editor({
 
   return (
     <div className="screen editor-screen">
-      <header className="screen-header">
-        <div>
-          <p className="eyebrow">今日のできごとと感情を、少しだけ残す日記</p>
-          <h1>季節日記</h1>
-          <p className="subtle">{entry.date}（{entry.weekday}）</p>
-        </div>
-        <div className={`save-badge ${saveState}`}>
-          {saveState === "saving" ? "保存中..." : saveState === "saved" ? "保存済み" : "編集中"}
-        </div>
-      </header>
-
-      <div className="date-controls">
-        <button onClick={() => onMoveDate(addDays(entry.date, -1))} type="button">
-          前日
-        </button>
-        <input
-          aria-label="日付"
-          type="date"
-          value={entry.date}
-          onChange={(event) => onMoveDate(event.target.value)}
+      <AppBar>
+        <DateSwitcher date={entry.date} onMove={onMoveDate} />
+        <span className="spacer" />
+        <span className={`save-badge ${saveState}`} aria-live="polite">
+          {saveState === "saving" ? "保存中" : saveState === "dirty" ? "編集中" : "保存済み"}
+        </span>
+        <OverflowMenu
+          items={[
+            { label: "この日をテキストで書き出す", icon: "text", onSelect: onExportMarkdown },
+            { label: "この日の日記を削除", icon: "trash", danger: true, onSelect: onDelete },
+          ]}
         />
-        <button onClick={() => onMoveDate(addDays(entry.date, 1))} type="button">
-          翌日
-        </button>
-      </div>
+      </AppBar>
 
-      <PeriodGoalSummary
-        weekly={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
-        monthly={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
-      />
-
-      <BoundaryReviewEntries
-        date={entry.date}
-        weeklyReviews={weeklyReviews}
-        monthlyReviews={monthlyReviews}
-        onSaveWeekly={onSaveWeeklyReview}
-        onSaveMonthly={onSaveMonthlyReview}
-      />
-
-      <section className="field-group body-area">
-        <label>日記・振り返りを書く</label>
-        <button className="body-toggle primary" type="button" onClick={() => setBodyExpanded((expanded) => !expanded)}>
-          {bodyExpanded ? "振り返りを閉じる" : "振り返りを書く"}
-        </button>
-        {bodyExpanded && (
-          <div className="body-panel">
-            <label>
-              振り返り
-              <textarea
-                value={entry.body}
-                onChange={(event) => onChange({ ...entry, body: event.target.value })}
-                placeholder="今日の出来事、感情、思考を振り返る"
-              />
-            </label>
-          </div>
-        )}
-      </section>
-
-      <section className="field-group free-diary-area">
-        <button className="details-toggle" type="button" onClick={() => setFreeScratchExpanded((expanded) => !expanded)}>
-          {freeScratchExpanded ? "日記を閉じる" : "日記を書く"}
-        </button>
-        {freeScratchExpanded && (
-          <textarea
-            value={entry.scratch}
-            onChange={(event) => onChange({ ...entry, scratch: event.target.value })}
-            placeholder="日記を書く"
-          />
-        )}
-      </section>
-
-      <section className="field-group scratch-area">
-        <label>らくがき帳</label>
-        <textarea
-          className="scratch-draft"
-          value={scratchDraft}
-          onChange={(event) => setScratchDraft(event.target.value)}
-          placeholder="今のメモを書く"
+      <div className="screen-body">
+        <PeriodGoalSummary
+          weekly={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
+          monthly={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
         />
-        <button className="primary" type="button" onClick={addScratchItem}>
-          らくがきメモを追加
-        </button>
-        <div className="scratch-history">
-          <div className="scratch-history-head">
-            <h2>今日のメモ履歴</h2>
+
+        <BoundaryReviewEntries
+          date={entry.date}
+          weeklyReviews={weeklyReviews}
+          monthlyReviews={monthlyReviews}
+          onSaveWeekly={onSaveWeeklyReview}
+          onSaveMonthly={onSaveMonthlyReview}
+        />
+
+        <section className="fold body-area">
+          <button
+            className="fold-head"
+            type="button"
+            aria-expanded={bodyExpanded}
+            onClick={() => setBodyExpanded((expanded) => !expanded)}
+          >
+            <span className={bodyExpanded ? "fold-caret open" : "fold-caret"}>
+              <Icon name="chevron-right" size={18} />
+            </span>
+            <span className="fold-title">振り返り</span>
+            <span className="fold-status">{bodyStatus}</span>
+          </button>
+          {bodyExpanded && (
+            <textarea
+              aria-label="振り返り"
+              value={entry.body}
+              onChange={(event) => onChange({ ...entry, body: event.target.value })}
+              placeholder="今日の出来事、感情、思考を振り返る"
+            />
+          )}
+        </section>
+
+        <section className="fold free-diary-area">
+          <button
+            className="fold-head"
+            type="button"
+            aria-expanded={freeScratchExpanded}
+            onClick={() => setFreeScratchExpanded((expanded) => !expanded)}
+          >
+            <span className={freeScratchExpanded ? "fold-caret open" : "fold-caret"}>
+              <Icon name="chevron-right" size={18} />
+            </span>
+            <span className="fold-title">日記</span>
+            <span className="fold-status">{scratchLength > 0 ? `${scratchLength}文字` : "未記入"}</span>
+          </button>
+          {freeScratchExpanded && (
+            <textarea
+              aria-label="日記"
+              value={entry.scratch}
+              onChange={(event) => onChange({ ...entry, scratch: event.target.value })}
+              placeholder="日記を書く"
+            />
+          )}
+        </section>
+
+        <section className="scratch-area">
+          <h2 className="section-title">らくがき帳</h2>
+          <div className="scratch-composer">
+            <textarea
+              aria-label="らくがきメモ"
+              rows={1}
+              value={scratchDraft}
+              onChange={(event) => setScratchDraft(event.target.value)}
+              placeholder="今のメモを書く"
+            />
+            <button
+              className="send-btn"
+              type="button"
+              aria-label="らくがきメモを追加"
+              title="らくがきメモを追加"
+              disabled={!scratchDraft.trim()}
+              onClick={addScratchItem}
+            >
+              <Icon name="arrow-up" size={18} />
+            </button>
           </div>
-          {sortedScratchItems.length === 0 ? (
-            <p className="empty">まだメモはありません。</p>
-          ) : (
-            <ul>
+          {sortedScratchItems.length > 0 && (
+            <ul className="memo-list">
               {sortedScratchItems.map((item) => (
                 <li key={item.id}>
-                  <div>
-                    <time>{timeOnly(item.createdAt)}</time>
-                    <p>{item.text}</p>
-                  </div>
+                  <time>{timeOnly(item.createdAt)}</time>
+                  <p>{item.text}</p>
                 </li>
               ))}
             </ul>
           )}
-        </div>
-      </section>
+        </section>
 
-      <div className="status-line">最終保存：{timeOnly(entry.updatedAt)}</div>
+        {/* 写真は画面の一番下。写真を追加しない日は「写真を追加」だけが増える */}
+        <PhotoSection
+          photos={entry.photos}
+          editable
+          busy={photoBusy}
+          notice={photoNotice}
+          onAddFiles={onAddPhotos}
+          onDeletePhoto={onDeletePhoto}
+        />
 
-      <div className="action-row">
-        <button className="primary" onClick={onManualSave} type="button">
-          保存
-        </button>
-        <button onClick={onExportMarkdown} type="button">
-          Markdownエクスポート
-        </button>
-        <button className="danger" onClick={onDelete} type="button">
-          削除
-        </button>
+        <p className="status-line">最後に保存した時刻：{timeOnly(entry.updatedAt)}</p>
       </div>
-
-      {/* 写真は画面の一番下。写真を追加しない日は「＋ 写真を追加」だけが増える */}
-      <PhotoSection
-        photos={entry.photos}
-        editable
-        busy={photoBusy}
-        notice={photoNotice}
-        onAddFiles={onAddPhotos}
-        onDeletePhoto={onDeletePhoto}
-      />
     </div>
   );
 }

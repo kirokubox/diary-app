@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
 import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
-import { monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
+import { formatMonthLabel, monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
 import { Editor } from "./Editor";
 import { downloadBlob, downloadText } from "./fileUtils";
+import { Icon } from "./Icon";
+import type { IconName } from "./Icon";
 import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "./markdown";
 import { MemoryCard } from "./MemoryCard";
@@ -18,6 +20,7 @@ import { buildSearchSnippet } from "./summary";
 import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
 import { createZipBlob, readZipEntries } from "./zip";
 import type { ZipInputFile } from "./zip";
+import { AppBar } from "./ui";
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>("today");
@@ -49,6 +52,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [templateDraft, setTemplateDraft] = useState(DEFAULT_TEMPLATE);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importResult, setImportResult] = useState<{
@@ -112,6 +116,21 @@ export default function App() {
   useEffect(() => {
     entryRef.current = entry;
   }, [entry]);
+
+  // 保存ボタンを置かない代わりに、アプリを閉じる・裏へ回すときは待たずに保存する
+  const saveStateRef = useRef<SaveState>("idle");
+  useEffect(() => {
+    saveStateRef.current = saveState;
+  }, [saveState]);
+  useEffect(() => {
+    function flush() {
+      if (document.visibilityState !== "hidden") return;
+      const current = entryRef.current;
+      if (current && saveStateRef.current === "dirty") void persistEntry(current);
+    }
+    document.addEventListener("visibilitychange", flush);
+    return () => document.removeEventListener("visibilitychange", flush);
+  }, []);
 
   // 設定タブを開いたときと写真が増減したときに、写真の保存容量を測り直す
   useEffect(() => {
@@ -372,7 +391,7 @@ export default function App() {
       ),
       "text/markdown",
     );
-    notify("Markdownをエクスポートしました");
+    notify("テキストで書き出しました");
   }
 
   // 閲覧モード用。保存を伴わない(未作成日にテンプレだけの日記を作らない)
@@ -383,7 +402,7 @@ export default function App() {
       entryToMarkdown(entry, periodContextForDate(entry.date, weeklyReviews, monthlyReviews)),
       "text/markdown",
     );
-    notify("Markdownをエクスポートしました");
+    notify("テキストで書き出しました");
   }
 
   async function removeCurrentEntry() {
@@ -440,6 +459,18 @@ export default function App() {
 
   // entries は日付降順なので先頭7件が直近
   const recentEntries = useMemo(() => entries.slice(0, 7), [entries]);
+  // 最近の7件より前の日記を、月ごとにまとめる
+  const olderGroups = useMemo(() => {
+    const groups: Array<{ month: string; items: DiaryEntry[] }> = [];
+    for (const item of entries.slice(7)) {
+      const month = monthOf(item.date);
+      const last = groups[groups.length - 1];
+      if (last && last.month === month) last.items.push(item);
+      else groups.push({ month, items: [item] });
+    }
+    return groups;
+  }, [entries]);
+  const isSearching = query.trim() !== "" || fromDate !== "" || toDate !== "";
   // 閲覧モードで「保存済みの日記がある日か」を判定する(未作成日はテンプレを見せない)
   const entryExists = useMemo(() => entries.some((item) => item.date === activeDate), [entries, activeDate]);
 
@@ -611,7 +642,7 @@ export default function App() {
         }
       : null;
     if (settingsFound) {
-      warnings.push({ message: "settings が含まれています。実行するとテンプレート等の設定も復元します。" });
+      warnings.push({ message: "設定（テンプレートなど）も入っています。追加するとテンプレートなどの設定も戻します。" });
     }
 
     const photoMetaCount = addableEntries.reduce((sum, item) => sum + item.photos.length, 0);
@@ -639,14 +670,14 @@ export default function App() {
       const preview = await buildImportPreview(await file.text(), file.name);
       if (preview.photoMetaCount > 0) {
         preview.warnings.push({
-          message: `写真の情報が${preview.photoMetaCount}件ありますが、通常のJSONに画像は入っていません。画像も戻すには写真つきZIPインポートを使ってください。`,
+          message: `写真の情報が${preview.photoMetaCount}件ありますが、このバックアップに画像は入っていません。画像も戻すには「写真つきバックアップから追加」を使ってください。`,
         });
       }
       setImportPreview(preview);
-      notify("JSONを検証しました。内容を確認してください");
+      notify("ファイルを確認しました。内容を見てから追加してください");
     } catch (error) {
       setImportPreview(null);
-      window.alert(error instanceof Error ? error.message : "JSONを読み込めませんでした。");
+      window.alert(error instanceof Error ? error.message : "バックアップを読み込めませんでした。");
     }
   }
 
@@ -723,11 +754,11 @@ export default function App() {
       downloadBlob(`diary-photo-backup-${toDateInputValue()}.zip`, zip);
       notify(
         missingCount > 0
-          ? `ZIPを出力しました（画像が見つからない写真${missingCount}枚を除く）`
-          : `ZIPを出力しました（写真${files.length}枚）`,
+          ? `写真つきバックアップを保存しました（画像が見つからない写真${missingCount}枚を除く）`
+          : `写真つきバックアップを保存しました（写真${files.length}枚）`,
       );
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "ZIPを出力できませんでした。");
+      window.alert(error instanceof Error ? error.message : "写真つきバックアップを保存できませんでした。");
     } finally {
       setZipBusy(false);
     }
@@ -767,14 +798,14 @@ export default function App() {
           });
         }
       } else {
-        preview.warnings.push({ message: "ZIPの中に photos.json が無いため、写真は復元できません（本文だけ復元します）。" });
+        preview.warnings.push({ message: "写真の対応表が入っていないため、写真は戻せません（文字だけ戻します）。" });
       }
 
       setImportPreview({ ...preview, zipPhotos });
-      notify("ZIPを検証しました。内容を確認してください");
+      notify("ファイルを確認しました。内容を見てから追加してください");
     } catch (error) {
       setImportPreview(null);
-      window.alert(error instanceof Error ? error.message : "ZIPを読み込めませんでした。");
+      window.alert(error instanceof Error ? error.message : "写真つきバックアップを読み込めませんでした。");
     } finally {
       setZipBusy(false);
     }
@@ -841,9 +872,9 @@ export default function App() {
         `月次${importPreview.addableMonthlyReviews.length}件`,
         ...(restoredPhotos > 0 ? [`写真${restoredPhotos}枚`] : []),
       ];
-      notify(`インポート完了：${importCounts.join("・")}を追加しました`);
+      notify(`${importCounts.join("・")}を追加しました`);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "インポートに失敗しました。");
+      window.alert(error instanceof Error ? error.message : "追加できませんでした。");
     }
   }
 
@@ -880,6 +911,20 @@ export default function App() {
     notify("全データを削除しました");
   }
 
+  // 記録がある思い出だけを並べる
+  const memoryItems: Array<{ label: string; entry: DiaryEntry }> = [];
+  if (memoryCards.monthAgoEntry) memoryItems.push({ label: "1か月前", entry: memoryCards.monthAgoEntry });
+  if (memoryCards.yearAgoEntry) memoryItems.push({ label: "1年前", entry: memoryCards.yearAgoEntry });
+  if (memoryCards.seasonEntry) memoryItems.push({ label: `この季節（${memoryCards.season}）`, entry: memoryCards.seasonEntry });
+
+  const tabs: Array<{ key: TabKey; label: string; icon: IconName }> = [
+    { key: "today", label: "日記", icon: "pencil" },
+    { key: "list", label: "一覧", icon: "list" },
+    { key: "settings", label: "設定", icon: "settings" },
+  ];
+  // 過去の日記を読んでいるあいだは、入口である「一覧」を選択中として見せる
+  const activeTab: TabKey = tab === "today" && entryViewMode === "read" ? "list" : tab;
+
   return (
     <div className="app-shell">
       {!isOnline && <div className="offline-badge">オフライン</div>}
@@ -890,6 +935,7 @@ export default function App() {
               entry={entry}
               exists={entryExists}
               onMoveDate={openDateForReading}
+              onBack={() => setTab("list")}
               onStartEditing={startEditing}
               onExportMarkdown={exportEntryMarkdownWithoutSave}
               weeklyReview={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
@@ -900,7 +946,6 @@ export default function App() {
               entry={entry}
               saveState={saveState}
               onChange={updateEntry}
-              onManualSave={() => void persistEntry(entry)}
               onExportMarkdown={() => void exportEntryMarkdown()}
               onMoveDate={openDate}
               onDelete={() => void removeCurrentEntry()}
@@ -920,399 +965,467 @@ export default function App() {
 
         {tab === "list" && (
           <div className="screen">
-            <header className="screen-header">
-              <div>
-                <p className="eyebrow">一覧</p>
-                <h1>日記一覧</h1>
+            <AppBar>
+              <h1 className="app-bar-title">一覧</h1>
+              <span className="spacer" />
+              <span className="count">{isSearching ? searchResults.length : entries.length}件</span>
+            </AppBar>
+
+            <div className="screen-body">
+              <div className="search-row">
+                <label className="search-box">
+                  <Icon name="search" size={18} />
+                  <input
+                    aria-label="日記を検索"
+                    placeholder="日記を検索"
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                </label>
+                <button
+                  className={filterOpen || fromDate || toDate ? "chip on" : "chip"}
+                  type="button"
+                  aria-expanded={filterOpen}
+                  onClick={() => setFilterOpen((value) => !value)}
+                >
+                  <Icon name="calendar" size={16} />
+                  期間
+                </button>
               </div>
-              <span className="count">{entries.length}件</span>
-            </header>
-            <MonthlyReviewHub
-              selectedMonth={selectedReviewMonth}
-              onMonthChange={setSelectedReviewMonth}
-              weeklyReviews={weeklyReviews}
-              monthlyReviews={monthlyReviews}
-              onSaveWeekly={persistWeeklyReview}
-              onSaveMonthly={persistMonthlyReview}
-            />
-            <section className="list-section">
-              <h2 className="list-section-title">最近の日記</h2>
-              {recentEntries.length === 0 ? (
-                <p className="empty">まだ保存された日記はありません。</p>
-              ) : (
-                <div className="entry-list">
-                  {recentEntries.map((item) => (
-                    <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
-                  ))}
+              {filterOpen && (
+                <div className="search-date-row">
+                  <label>
+                    開始日
+                    <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+                  </label>
+                  <label>
+                    終了日
+                    <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+                  </label>
+                  {(fromDate || toDate) && (
+                    <button
+                      className="text-toggle"
+                      type="button"
+                      onClick={() => {
+                        setFromDate("");
+                        setToDate("");
+                      }}
+                    >
+                      期間の指定を外す
+                    </button>
+                  )}
                 </div>
               )}
-            </section>
-            <MemoryCard
-              label={`1か月前${memoryCards.monthAgoDate ? `（${formatShortDate(memoryCards.monthAgoDate)}）` : ""}`}
-              entry={memoryCards.monthAgoEntry}
-              onOpen={openDateForReading}
-            />
-            <MemoryCard
-              label={`1年前${memoryCards.yearAgoDate ? `（${formatShortDate(memoryCards.yearAgoDate)}）` : ""}`}
-              entry={memoryCards.yearAgoEntry}
-              onOpen={openDateForReading}
-            />
-            {memoryCards.seasonEntry && (
-              <MemoryCard
-                label={`この季節の記録（${memoryCards.season}）`}
-                entry={memoryCards.seasonEntry}
-                onOpen={openDateForReading}
-              />
-            )}
-          </div>
-        )}
 
-        {tab === "search" && (
-          <div className="screen">
-            <header className="screen-header">
-              <div>
-                <p className="eyebrow">検索</p>
-                <h1>日記を探す</h1>
-              </div>
-              <span className="count">{searchResults.length}件</span>
-            </header>
-            <section className="search-panel">
-              <label>
-                キーワード
-                <input value={query} onChange={(event) => setQuery(event.target.value)} />
-              </label>
-              <div className="search-date-row">
-                <label>
-                  開始日
-                  <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-                </label>
-                <label>
-                  終了日
-                  <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-                </label>
-              </div>
-            </section>
-            <div className="entry-list">
-              {searchResults.map((item) => (
-                <CompactEntryCard
-                  entry={item}
-                  key={item.id}
-                  snippet={buildSearchSnippet(item, query)}
-                  onOpen={openDateForReading}
-                />
-              ))}
+              {isSearching ? (
+                searchResults.length === 0 ? (
+                  <p className="empty">見つかりませんでした。</p>
+                ) : (
+                  <div className="card list-rows">
+                    {searchResults.map((item) => (
+                      <CompactEntryCard
+                        entry={item}
+                        key={item.id}
+                        snippet={buildSearchSnippet(item, query)}
+                        onOpen={openDateForReading}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : (
+                <>
+                  <MonthlyReviewHub
+                    selectedMonth={selectedReviewMonth}
+                    onMonthChange={setSelectedReviewMonth}
+                    weeklyReviews={weeklyReviews}
+                    monthlyReviews={monthlyReviews}
+                    onSaveWeekly={persistWeeklyReview}
+                    onSaveMonthly={persistMonthlyReview}
+                  />
+                  {entries.length === 0 ? (
+                    <div className="empty-state">
+                      <p>まだ日記はありません。</p>
+                      <button className="btn primary" type="button" onClick={() => void openDate(toDateInputValue())}>
+                        今日の日記を書く
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <section className="list-section">
+                        <h2 className="section-title">最近の日記</h2>
+                        <div className="card list-rows">
+                          {recentEntries.map((item) => (
+                            <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
+                          ))}
+                        </div>
+                      </section>
+                      {memoryItems.length > 0 && (
+                        <section className="list-section">
+                          <h2 className="section-title">思い出</h2>
+                          <div className="card list-rows">
+                            {memoryItems.map((item) => (
+                              <MemoryCard entry={item.entry} key={item.label} label={item.label} onOpen={openDateForReading} />
+                            ))}
+                          </div>
+                        </section>
+                      )}
+                      {olderGroups.map((group) => (
+                        <section className="list-section" key={group.month}>
+                          <h2 className="section-title">{formatMonthLabel(group.month)}</h2>
+                          <div className="card list-rows">
+                            {group.items.map((item) => (
+                              <CompactEntryCard entry={item} key={item.id} onOpen={openDateForReading} />
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )}
 
         {tab === "settings" && (
           <div className="screen settings-screen">
-            <header className="screen-header">
-              <div>
-                <p className="eyebrow">設定</p>
-                <h1>設定</h1>
-              </div>
-            </header>
+            <AppBar>
+              <h1 className="app-bar-title">設定</h1>
+            </AppBar>
 
-            <section className="settings-section">
-              <h2>テンプレート編集</h2>
-              <textarea
-                className="template-editor"
-                value={templateDraft}
-                onChange={(event) => setTemplateDraft(event.target.value)}
-              />
-              <div className="action-row">
-                <button className="primary" onClick={saveTemplate} type="button">
-                  保存
-                </button>
-                <button onClick={resetTemplate} type="button">
-                  初期テンプレートに戻す
-                </button>
-              </div>
-            </section>
-
-            <section className="settings-section">
-              <h2>バックアップと復元</h2>
-              <p className="notice">
-                インポート前に、現在の日記データをJSONエクスポートしてバックアップすることをおすすめします。
-                インポートでは既存の日記を上書きせず、新規データだけを追加します。
-              </p>
-              <p className="notice">
-                <strong>JSONエクスポートに写真の画像は入りません。</strong>
-                入るのは「写真が何枚あるか」という情報だけです。写真も含めて残す場合は、下の「写真つきZIPエクスポート」を使ってください。
-                JSONだけで復元すると、本文は戻りますが写真は空のまま（読み込めない写真として表示）になります。
-              </p>
-              <div className="action-row">
-                <button onClick={() => void exportJson()} type="button">
-                  JSONエクスポート
-                </button>
-                <button onClick={exportMarkdown} type="button">
-                  Markdownエクスポート
-                </button>
-              </div>
-              <label className="file-picker">
-                JSONインポート
-                <input
-                  accept="application/json,.json"
-                  type="file"
-                  onChange={(event) => {
-                    void importJson(event.target.files?.[0]);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              <div className="action-row">
-                <button disabled={zipBusy} onClick={() => void exportPhotoZip()} type="button">
-                  {zipBusy ? "処理中..." : "写真つきZIPエクスポート"}
-                </button>
-              </div>
-              <label className="file-picker">
-                写真つきZIPインポート
-                <input
-                  accept="application/zip,.zip"
-                  disabled={zipBusy}
-                  type="file"
-                  onChange={(event) => {
-                    void importPhotoZip(event.target.files?.[0]);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              {importPreview && (
-                <div className="import-preview">
-                  <div>
-                    <p className="eyebrow">インポート前プレビュー</p>
-                    <h3>{importPreview.fileName}</h3>
+            <div className="screen-body">
+              <section className="list-section">
+                <h2 className="section-title">振り返りのテンプレート</h2>
+                <details className="card details">
+                  <summary>
+                    テンプレートを編集
+                    <Icon name="chevron-down" size={18} />
+                  </summary>
+                  <div className="details-body">
+                    <textarea
+                      aria-label="振り返りのテンプレート"
+                      className="template-editor"
+                      value={templateDraft}
+                      onChange={(event) => setTemplateDraft(event.target.value)}
+                    />
+                    <div className="action-row">
+                      <button className="btn primary" onClick={saveTemplate} type="button">
+                        保存
+                      </button>
+                      <button className="btn" onClick={resetTemplate} type="button">
+                        最初の状態に戻す
+                      </button>
+                    </div>
                   </div>
-                  <div className="import-summary">
-                    <span>読み込み件数：{importPreview.total}件</span>
-                    <span>新規追加：{importPreview.addableEntries.length}件</span>
-                    <span>週次追加：{importPreview.addableWeeklyReviews.length}件</span>
-                    <span>月次追加：{importPreview.addableMonthlyReviews.length}件</span>
-                    <span>重複：{importPreview.skippedEntries.length}件</span>
-                    <span>エラー：{importPreview.errors.length}件</span>
-                    <span>警告：{importPreview.warnings.length}件</span>
-                  </div>
-                  {importPreview.zipPhotos.length > 0 && (
-                    <div className="import-detail">
-                      <h4>写真</h4>
-                      <p>
-                        ZIPに写真{importPreview.zipPhotos.length}枚が入っています。
-                        日記から参照されていて、まだ端末に無い写真だけを復元します（既にある写真は上書きしません）。
-                      </p>
-                    </div>
-                  )}
+                </details>
+              </section>
 
-                  {importPreview.addableEntries.length > 0 && (
-                    <div className="import-detail">
-                      <h4>追加予定の日付</h4>
-                      <p>{importPreview.addableEntries.map((item) => item.date).join("、")}</p>
-                    </div>
-                  )}
-
-                  {importPreview.skippedEntries.length > 0 && (
-                    <div className="import-detail">
-                      <h4>スキップする日付</h4>
-                      <ul>
-                        {importPreview.skippedEntries.map((item) => (
-                          <li key={`${item.index}-${item.date}`}>{item.message}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {importPreview.errors.length > 0 && (
-                    <div className="import-detail danger-text">
-                      <h4>エラー</h4>
-                      <ul>
-                        {importPreview.errors.map((item, index) => (
-                          <li key={`${item.index ?? "all"}-${index}`}>{issueLabel(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {importPreview.warnings.length > 0 && (
-                    <div className="import-detail warning-text">
-                      <h4>警告</h4>
-                      <ul>
-                        {importPreview.warnings.map((item, index) => (
-                          <li key={`${item.index ?? "all"}-${index}`}>{issueLabel(item)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="action-row">
-                    <button
-                      className="primary"
-                      disabled={
-                        importPreview.errors.length > 0 ||
-                        (importPreview.addableEntries.length === 0 &&
-                          importPreview.addableWeeklyReviews.length === 0 &&
-                          importPreview.addableMonthlyReviews.length === 0 &&
-                          importPreview.zipPhotos.length === 0)
-                      }
-                      onClick={() => void addNewEntriesFromImport()}
-                      type="button"
-                    >
-                      {importPreview.zipPhotos.length > 0 ? "新規データと写真を復元する" : "新規データだけ追加する"}
-                    </button>
-                    <button onClick={() => setImportPreview(null)} type="button">
-                      プレビューを閉じる
-                    </button>
-                  </div>
-                  {importPreview.errors.length > 0 && (
-                    <p className="subtle">エラーがあるため、このJSONはまだインポートできません。</p>
-                  )}
+              <section className="list-section">
+                <h2 className="section-title">バックアップ</h2>
+                <div className="card list-rows">
+                  <button className="row-btn" onClick={() => void exportJson()} type="button">
+                    <Icon name="download" />
+                    <span className="row-main">
+                      <span className="row-title">バックアップを保存</span>
+                      <span className="row-sub">日記の文字をファイルに保存します。写真は入りません</span>
+                    </span>
+                  </button>
+                  <label className="row-btn">
+                    <Icon name="upload" />
+                    <span className="row-main">
+                      <span className="row-title">バックアップから追加</span>
+                      <span className="row-sub">すでにある日は上書きせず、無い日だけ追加します</span>
+                    </span>
+                    <input
+                      accept="application/json,.json"
+                      type="file"
+                      onChange={(event) => {
+                        void importJson(event.target.files?.[0]);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  <button className="row-btn" disabled={zipBusy} onClick={() => void exportPhotoZip()} type="button">
+                    <Icon name="image" />
+                    <span className="row-main">
+                      <span className="row-title">{zipBusy ? "処理中…" : "写真つきバックアップを保存"}</span>
+                      <span className="row-sub">日記の文字と写真を1つのファイルに保存します</span>
+                    </span>
+                  </button>
+                  <label className={zipBusy ? "row-btn disabled" : "row-btn"}>
+                    <Icon name="upload" />
+                    <span className="row-main">
+                      <span className="row-title">写真つきバックアップから追加</span>
+                      <span className="row-sub">無い日の日記と、端末に無い写真だけを戻します</span>
+                    </span>
+                    <input
+                      accept="application/zip,.zip"
+                      disabled={zipBusy}
+                      type="file"
+                      onChange={(event) => {
+                        void importPhotoZip(event.target.files?.[0]);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  <button className="row-btn" onClick={exportMarkdown} type="button">
+                    <Icon name="text" />
+                    <span className="row-main">
+                      <span className="row-title">全日記をテキストで書き出す</span>
+                      <span className="row-sub">読み返す・AIに渡すためのファイルです。ここからは元に戻せません</span>
+                    </span>
+                  </button>
                 </div>
-              )}
 
-              {importResult && (
-                <div className="import-preview">
-                  <p className="eyebrow">インポート結果</p>
-                  <h3>インポート完了</h3>
-                  <div className="import-summary">
-                    <span>追加：{importResult.added}件</span>
-                    <span>週次：{importResult.weeklyAdded}件</span>
-                    <span>月次：{importResult.monthlyAdded}件</span>
-                    <span>スキップ：{importResult.skipped.length}件</span>
-                    <span>エラー：{importResult.errors}件</span>
-                    <span>写真復元：{importResult.restoredPhotos}枚</span>
-                  </div>
-                  {importResult.skipped.length > 0 && (
-                    <div className="import-detail">
-                      <h4>スキップした日付</h4>
-                      <p>{importResult.skipped.map((item) => item.date).join("、")}</p>
+                {importPreview && (
+                  <div className="card import-preview">
+                    <div>
+                      <p className="eyebrow">追加する前の確認</p>
+                      <h3>{importPreview.fileName}</h3>
                     </div>
+                    <div className="stat-grid">
+                      <span>読み込み：{importPreview.total}件</span>
+                      <span>新しく追加：{importPreview.addableEntries.length}件</span>
+                      <span>週の記録：{importPreview.addableWeeklyReviews.length}件</span>
+                      <span>月の記録：{importPreview.addableMonthlyReviews.length}件</span>
+                      <span>すでにある日：{importPreview.skippedEntries.length}件</span>
+                      <span>エラー：{importPreview.errors.length}件</span>
+                      <span>注意：{importPreview.warnings.length}件</span>
+                    </div>
+                    {importPreview.zipPhotos.length > 0 && (
+                      <div className="import-detail">
+                        <h4>写真</h4>
+                        <p>
+                          写真が{importPreview.zipPhotos.length}枚入っています。
+                          日記で使われていて、まだ端末に無い写真だけを戻します（すでにある写真は上書きしません）。
+                        </p>
+                      </div>
+                    )}
+
+                    {importPreview.addableEntries.length > 0 && (
+                      <div className="import-detail">
+                        <h4>追加する日付</h4>
+                        <p>{importPreview.addableEntries.map((item) => item.date).join("、")}</p>
+                      </div>
+                    )}
+
+                    {importPreview.skippedEntries.length > 0 && (
+                      <div className="import-detail">
+                        <h4>追加しない日付</h4>
+                        <ul>
+                          {importPreview.skippedEntries.map((item) => (
+                            <li key={`${item.index}-${item.date}`}>{item.message}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {importPreview.errors.length > 0 && (
+                      <div className="import-detail danger-text">
+                        <h4>エラー</h4>
+                        <ul>
+                          {importPreview.errors.map((item, index) => (
+                            <li key={`${item.index ?? "all"}-${index}`}>{issueLabel(item)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {importPreview.warnings.length > 0 && (
+                      <div className="import-detail warning-text">
+                        <h4>注意</h4>
+                        <ul>
+                          {importPreview.warnings.map((item, index) => (
+                            <li key={`${item.index ?? "all"}-${index}`}>{issueLabel(item)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="action-row">
+                      <button
+                        className="btn primary"
+                        disabled={
+                          importPreview.errors.length > 0 ||
+                          (importPreview.addableEntries.length === 0 &&
+                            importPreview.addableWeeklyReviews.length === 0 &&
+                            importPreview.addableMonthlyReviews.length === 0 &&
+                            importPreview.zipPhotos.length === 0)
+                        }
+                        onClick={() => void addNewEntriesFromImport()}
+                        type="button"
+                      >
+                        {importPreview.zipPhotos.length > 0 ? "新しい日記と写真を追加" : "新しい日記だけ追加"}
+                      </button>
+                      <button className="btn" onClick={() => setImportPreview(null)} type="button">
+                        やめる
+                      </button>
+                    </div>
+                    {importPreview.errors.length > 0 && (
+                      <p className="subtle">エラーがあるため、このファイルはまだ追加できません。</p>
+                    )}
+                  </div>
+                )}
+
+                {importResult && (
+                  <div className="card import-preview">
+                    <h3>追加しました</h3>
+                    <div className="stat-grid">
+                      <span>日記：{importResult.added}件</span>
+                      <span>週の記録：{importResult.weeklyAdded}件</span>
+                      <span>月の記録：{importResult.monthlyAdded}件</span>
+                      <span>追加しなかった日：{importResult.skipped.length}件</span>
+                      <span>エラー：{importResult.errors}件</span>
+                      <span>写真：{importResult.restoredPhotos}枚</span>
+                    </div>
+                    {importResult.skipped.length > 0 && (
+                      <div className="import-detail">
+                        <h4>追加しなかった日付</h4>
+                        <p>{importResult.skipped.map((item) => item.date).join("、")}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              <section className="list-section">
+                <h2 className="section-title">写真の保存容量</h2>
+                <div className="card pad">
+                  {storageInfo ? (
+                    <div className="stat-grid two">
+                      <span>保存枚数：{storageInfo.count}枚</span>
+                      <span>写真の合計：{formatByteSize(storageInfo.byteSize)}</span>
+                      <span>
+                        アプリ全体：
+                        {storageInfo.usage === null ? "-" : formatByteSize(storageInfo.usage)}
+                      </span>
+                      <span>
+                        使える上限：
+                        {storageInfo.quota === null ? "-" : formatByteSize(storageInfo.quota)}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="empty">保存容量を取得できませんでした。</p>
                   )}
+                  <p className="note">
+                    写真は追加したときに小さくして保存します（撮影場所などの情報は残りません）。元の写真は端末のギャラリーにそのまま残ります。
+                  </p>
                 </div>
-              )}
-            </section>
+              </section>
 
-            <section className="settings-section">
-              <h2>写真の保存容量</h2>
-              <p className="notice">
-                写真は追加したときに長辺1600pxへ縮小して保存します（撮影場所などのメタデータは残りません）。
-                元の写真は端末のギャラリー側にそのまま残ります。
-              </p>
-              {storageInfo ? (
-                <div className="import-summary storage-summary">
-                  <span>保存枚数：{storageInfo.count}枚</span>
-                  <span>写真の合計：{formatByteSize(storageInfo.byteSize)}</span>
-                  <span>
-                    アプリ全体：
-                    {storageInfo.usage === null ? "-" : formatByteSize(storageInfo.usage)}
-                  </span>
-                  <span>
-                    使用できる上限：
-                    {storageInfo.quota === null ? "-" : formatByteSize(storageInfo.quota)}
-                  </span>
+              <section className="list-section">
+                <h2 className="section-title">そのほか</h2>
+                <details className="card details">
+                  <summary>
+                    らくがきメモを消す
+                    <Icon name="chevron-down" size={18} />
+                  </summary>
+                  <div className="details-body">
+                    <p className="note">
+                      らくがき帳は書きっぱなしにする場所なので、日記の画面には消すボタンを置いていません。
+                      個人情報や第三者のことをうっかり書いてしまったときなど、どうしても消したい場合だけここから消してください。
+                    </p>
+                    <label className="settings-field">
+                      日付を選ぶ
+                      <input
+                        type="date"
+                        value={scratchManageDate}
+                        onChange={(event) => setScratchManageDate(event.target.value)}
+                      />
+                    </label>
+                    {scratchManageDate && (
+                      scratchManageEntry && scratchManageEntry.scratchItems.length > 0 ? (
+                        <ul className="memo-list manage">
+                          {[...scratchManageEntry.scratchItems]
+                            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                            .map((item) => (
+                              <li key={item.id}>
+                                <time>{timeOnly(item.createdAt)}</time>
+                                <p>{item.text}</p>
+                                <button
+                                  className="icon-btn danger"
+                                  type="button"
+                                  aria-label="このメモを消す"
+                                  title="このメモを消す"
+                                  onClick={() => void removeScratchItemFromDate(scratchManageDate, item)}
+                                >
+                                  <Icon name="trash" size={18} />
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p className="empty">この日のらくがきメモはありません。</p>
+                      )
+                    )}
+                  </div>
+                </details>
+                <details className="card details">
+                  <summary>
+                    このアプリについて
+                    <Icon name="chevron-down" size={18} />
+                  </summary>
+                  <div className="details-body info">
+                    <p>日々の出来事・感情・考えたことを書き残すための、個人用の日記です。</p>
+                    <p>
+                      日記は、サーバーではなくこの端末のブラウザの中に保存されます。
+                      ブラウザの閲覧データやサイトデータを消すと、日記も消えることがあります。
+                    </p>
+                    <p>
+                      スマホとPCのあいだで、日記が自動で同じ内容になることはありません。
+                      スマホで書いた日記はスマホに、PCで書いた日記はPCに残ります。
+                    </p>
+                    <ul>
+                      <li>週に1回は「バックアップを保存」をしておくと安心です。</li>
+                      <li>保存したバックアップのファイルは、公開される場所に置かないでください。</li>
+                      <li>バックアップは元に戻すためのもの、テキストの書き出しは読み返す・AIに渡すためのものです。</li>
+                      <li>写真が入るのは「写真つきバックアップ」だけです。</li>
+                    </ul>
+                    <p className="subtle">バージョン {APP_VERSION}</p>
+                  </div>
+                </details>
+              </section>
+
+              <section className="list-section">
+                <h2 className="section-title">データの削除</h2>
+                <div className="card list-rows">
+                  <button className="row-btn danger" onClick={() => void deleteAllData()} type="button">
+                    <Icon name="trash" />
+                    <span className="row-main">
+                      <span className="row-title">すべてのデータを削除</span>
+                      <span className="row-sub">日記・写真・設定をこの端末から消します。元に戻せません</span>
+                    </span>
+                  </button>
                 </div>
-              ) : (
-                <p className="empty">保存容量を取得できませんでした。</p>
-              )}
-            </section>
-
-            <section className="settings-section">
-              <h2>データ削除</h2>
-              <button className="danger wide" onClick={() => void deleteAllData()} type="button">
-                全データ削除
-              </button>
-            </section>
-
-            <section className="settings-section info">
-              <h2>アプリ情報</h2>
-              <p>
-                このアプリは、日々の出来事・感情・思考を記録しながら、メタ認知能力、言語化能力、
-                文章力を高めるための個人用Web日記です。
-              </p>
-              <p>
-                このアプリの日記データはサーバーではなく、ブラウザ内のIndexedDBに保存されます。
-                Chromeの閲覧データやサイトデータを削除すると、日記データが消える可能性があります。
-              </p>
-              <p>
-                公開URLに日記本文が保存されるわけではありません。ただし、URLを知っている人は
-                アプリ画面を開ける可能性があります。公開URLをSNSやnoteに載せないでください。
-              </p>
-              <p>
-                スマホとPCでデータは自動同期されません。スマホで書いた日記はスマホ側のブラウザに、
-                PCで書いた日記はPC側のブラウザに保存されます。
-              </p>
-              <ul>
-                <li>定期的にJSONエクスポートでバックアップしてください。</li>
-                <li>本番運用する場合は、週1回以上のJSONバックアップを推奨します。</li>
-                <li>JSONバックアップファイルをGitHubや公開フォルダに入れないでください。</li>
-                <li>JSONは復元用、Markdownは閲覧・共有・ChatGPT連携用です。</li>
-                <li>
-                  写真の画像はJSONにもMarkdownにも含まれません。写真も残す場合は「写真つきZIPエクスポート」を使い、
-                  ZIPも公開しない場所に保管してください。
-                </li>
-              </ul>
-            </section>
-
-            <section className="settings-section subtle-section">
-              <h2>らくがきメモの削除</h2>
-              <p className="notice">
-                らくがき帳は基本的に書きっぱなしにする場所で、日記画面には削除ボタンを置いていません。
-                個人情報や第三者のことをうっかり書いてしまったときなど、どうしても消したい場合だけここから削除してください。
-              </p>
-              <label className="settings-field">
-                日付を選ぶ
-                <input
-                  type="date"
-                  value={scratchManageDate}
-                  onChange={(event) => setScratchManageDate(event.target.value)}
-                />
-              </label>
-              {scratchManageDate && (
-                scratchManageEntry && scratchManageEntry.scratchItems.length > 0 ? (
-                  <ul className="scratch-manage-list">
-                    {[...scratchManageEntry.scratchItems]
-                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-                      .map((item) => (
-                        <li key={item.id}>
-                          <div>
-                            <time>{timeOnly(item.createdAt)}</time>
-                            <p>{item.text}</p>
-                          </div>
-                          <button
-                            className="small-danger"
-                            type="button"
-                            onClick={() => void removeScratchItemFromDate(scratchManageDate, item)}
-                          >
-                            削除
-                          </button>
-                        </li>
-                      ))}
-                  </ul>
-                ) : (
-                  <p className="empty">この日のらくがきメモはありません。</p>
-                )
-              )}
-            </section>
+              </section>
+            </div>
           </div>
         )}
       </main>
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
 
       <nav className="bottom-tabs" aria-label="画面切り替え">
-        {[
-          ["today", "日記"],
-          ["list", "一覧"],
-          ["search", "検索"],
-          ["settings", "設定"],
-        ].map(([key, label]) => (
+        {tabs.map((item) => (
           <button
-            className={tab === key ? "active" : ""}
-            key={key}
+            aria-current={activeTab === item.key ? "page" : undefined}
+            className={activeTab === item.key ? "tab active" : "tab"}
+            key={item.key}
+            type="button"
             onClick={() => {
-              if (key === "today") setEntryViewMode("edit");
-              setTab(key as TabKey);
+              if (item.key === "today") setEntryViewMode("edit");
+              setTab(item.key);
             }}
           >
-            {label}
+            <span className="tab-icon">
+              <Icon name={item.icon} size={22} />
+            </span>
+            <span>{item.label}</span>
           </button>
         ))}
       </nav>

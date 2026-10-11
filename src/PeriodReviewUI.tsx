@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addDays,
   addMonths,
+  formatMonthLabel,
   isFirstDayOfMonth,
   isLastDayOfMonth,
   isSunday,
@@ -9,7 +10,9 @@ import {
   weekStartOf,
   weekStartsEndingInMonth,
 } from "./dateUtils";
+import { Icon } from "./Icon";
 import { formatWeekRange } from "./periodReviews";
+import { IconButton } from "./ui";
 import type { MonthlyReview, WeeklyReview } from "./types";
 
 type SaveWeekly = (weekStart: string, goalTheme: string, reflection: string) => void | Promise<void>;
@@ -85,8 +88,9 @@ function BoundaryPanel({
 
   return (
     <div className="boundary-review">
-      <button className="details-toggle period-entry-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        {open ? `${title}を閉じる` : title}
+      <button className="btn dashed wide" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Icon name={open ? "x" : "pencil"} size={16} />
+        {open ? "閉じる" : title}
       </button>
       {open && (
         <div className="period-editor-panel">
@@ -108,8 +112,8 @@ function BoundaryPanel({
               placeholder="理由、迷い、優先順位も含めて書く"
             />
           </label>
-          <button className="primary" type="button" disabled={saving} onClick={() => void save()}>
-            {saving ? "保存中..." : "原文のまま保存"}
+          <button className="btn primary" type="button" disabled={saving} onClick={() => void save()}>
+            {saving ? "保存中" : "原文のまま保存"}
           </button>
         </div>
       )}
@@ -217,8 +221,10 @@ function ReviewAccordion({
 
   return (
     <article className="period-record">
-      <button className="period-record-heading" type="button" onClick={() => setOpen((value) => !value)}>
-        <span>{open ? "▼" : "▶"}</span>
+      <button className="period-record-heading" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className={open ? "fold-caret open" : "fold-caret"}>
+          <Icon name="chevron-right" size={18} />
+        </span>
         <strong>{label}</strong>
       </button>
       {!open && goalTheme.trim() && <p className="period-record-preview">{goalTheme}</p>}
@@ -228,7 +234,10 @@ function ReviewAccordion({
           <p>{goalTheme.trim() || "未入力"}</p>
           <h3>振り返り</h3>
           <p>{reflection.trim() || "未入力"}</p>
-          <button type="button" onClick={() => setEditing(true)}>編集する</button>
+          <button className="btn" type="button" onClick={() => setEditing(true)}>
+            <Icon name="pencil" size={16} />
+            編集
+          </button>
         </div>
       )}
       {open && editing && (
@@ -242,8 +251,8 @@ function ReviewAccordion({
             <textarea className="period-reflection-input" value={reflectionDraft} onChange={(event) => setReflectionDraft(event.target.value)} />
           </label>
           <div className="action-row">
-            <button className="primary" type="button" onClick={() => void save()}>原文のまま保存</button>
-            <button type="button" onClick={() => setEditing(false)}>キャンセル</button>
+            <button className="btn primary" type="button" onClick={() => void save()}>原文のまま保存</button>
+            <button className="btn" type="button" onClick={() => setEditing(false)}>キャンセル</button>
           </div>
         </div>
       )}
@@ -268,37 +277,61 @@ export function MonthlyReviewHub({
 }) {
   const monthReview = monthlyReviews.find((item) => item.month === selectedMonth);
   const weeks = useMemo(() => weekStartsEndingInMonth(selectedMonth), [selectedMonth]);
-  const monthLabel = `${Number(selectedMonth.slice(0, 4))}年${Number(selectedMonth.slice(5, 7))}月`;
+  const monthLabel = formatMonthLabel(selectedMonth);
+  // 一覧では日記を先に見せたいので、目標と振り返りは閉じた状態から始める
+  const [open, setOpen] = useState(false);
 
   return (
-    <section className="monthly-review-hub">
-      <div className="month-switcher">
-        <button type="button" onClick={() => onMonthChange(addMonths(selectedMonth, -1))}>前月</button>
-        <input aria-label="表示する月" type="month" value={selectedMonth} onChange={(event) => onMonthChange(event.target.value)} />
-        <button type="button" onClick={() => onMonthChange(addMonths(selectedMonth, 1))}>翌月</button>
-      </div>
-      <h2>{monthLabel}の目標と振り返り</h2>
-      <ReviewAccordion
-        label="月の目標・テーマと振り返り"
-        goalTheme={monthReview?.goalTheme ?? ""}
-        reflection={monthReview?.reflection ?? ""}
-        onSave={(goalTheme, reflection) => onSaveMonthly(selectedMonth, goalTheme, reflection)}
-      />
-      <h3 className="week-records-title">週ごとの記録</h3>
-      <div className="period-record-list">
-        {weeks.map((weekStart) => {
-          const review = weeklyReviews.find((item) => item.weekStart === weekStart);
-          return (
+    <section className="fold monthly-review-hub">
+      <button className="fold-head" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className={open ? "fold-caret open" : "fold-caret"}>
+          <Icon name="chevron-right" size={18} />
+        </span>
+        <span className="fold-title">目標と振り返り</span>
+        <span className="fold-status">{monthLabel}</span>
+      </button>
+      {open && (
+        <div className="hub-body">
+          <div className="month-switcher">
+            <IconButton icon="chevron-left" label="前の月" onClick={() => onMonthChange(addMonths(selectedMonth, -1))} />
+            <label className="date-jump">
+              <span className="date-label">{monthLabel}</span>
+              <input
+                aria-label="表示する月"
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => {
+                  if (event.target.value) onMonthChange(event.target.value);
+                }}
+              />
+            </label>
+            <IconButton icon="chevron-right" label="次の月" onClick={() => onMonthChange(addMonths(selectedMonth, 1))} />
+          </div>
+          <div className="period-record-list">
             <ReviewAccordion
-              key={weekStart}
-              label={formatWeekRange(weekStart)}
-              goalTheme={review?.goalTheme ?? ""}
-              reflection={review?.reflection ?? ""}
-              onSave={(goalTheme, reflection) => onSaveWeekly(weekStart, goalTheme, reflection)}
+              label="月の目標・テーマと振り返り"
+              goalTheme={monthReview?.goalTheme ?? ""}
+              reflection={monthReview?.reflection ?? ""}
+              onSave={(goalTheme, reflection) => onSaveMonthly(selectedMonth, goalTheme, reflection)}
             />
-          );
-        })}
-      </div>
+          </div>
+          <h3 className="week-records-title">週ごとの記録</h3>
+          <div className="period-record-list">
+            {weeks.map((weekStart) => {
+              const review = weeklyReviews.find((item) => item.weekStart === weekStart);
+              return (
+                <ReviewAccordion
+                  key={weekStart}
+                  label={formatWeekRange(weekStart)}
+                  goalTheme={review?.goalTheme ?? ""}
+                  reflection={review?.reflection ?? ""}
+                  onSave={(goalTheme, reflection) => onSaveWeekly(weekStart, goalTheme, reflection)}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

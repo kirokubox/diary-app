@@ -34,10 +34,12 @@ await compile("src/markdown.ts", "markdown.mjs", [
   ["./dateUtils", "./dateUtils.mjs"],
   ["./periodReviews", "./periodReviews.mjs"],
 ]);
+await compile("src/summary.ts", "summary.mjs");
 await compile("tests/lifeMetrics.test.ts", "lifeMetrics.test.mjs", [
   ["../src/dateUtils", "./dateUtils.mjs"],
   ["../src/diaryHelpers", "./diaryHelpers.mjs"],
   ["../src/lifeMetrics", "./lifeMetrics.mjs"],
   ["../src/markdown", "./markdown.mjs"],
   ["../src/periodReviews", "./periodReviews.mjs"],
+  ["../src/summary", "./summary.mjs"],
 ]);

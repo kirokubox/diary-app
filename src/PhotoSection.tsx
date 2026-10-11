@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PHOTO_MAX_COUNT } from "./constants";
+import { Icon } from "./Icon";
 import { PhotoViewer } from "./PhotoViewer";
 import type { DiaryPhoto } from "./types";
 import { usePhotoUrls } from "./usePhotoUrls";
@@ -32,8 +33,8 @@ export function PhotoSection({
   }
 
   return (
-    <section className={editable ? "field-group photo-area" : "reading-section photo-area"}>
-      {editable ? <label>今日の写真</label> : <h2>写真</h2>}
+    <section className={editable ? "photo-area" : "reading-section photo-area"}>
+      <h2 className="section-title">写真</h2>
 
       {photos.length > 0 && (
         <ul className="photo-grid">
@@ -58,7 +59,7 @@ export function PhotoSection({
 
       {missingIds.length > 0 && (
         <p className="photo-notice">
-          画像が見つからない写真が{missingIds.length}枚あります。写真つきZIPバックアップから復元できます。
+          画像が見つからない写真が{missingIds.length}枚あります。写真つきバックアップから戻せます。
         </p>
       )}
 
@@ -66,7 +67,8 @@ export function PhotoSection({
         <>
           {remaining > 0 ? (
             <label className={busy ? "photo-add busy" : "photo-add"}>
-              {busy ? "写真を保存しています…" : "＋ 写真を追加"}
+              {!busy && <Icon name="plus" size={16} />}
+              {busy ? "写真を保存しています…" : "写真を追加"}
               <input
                 accept="image/*"
                 multiple

@@ -164,3 +164,58 @@ export function buildSearchSnippet(entry: DiaryEntry, query: string): SearchSnip
   }
   return null;
 }
+
+export type BodyItem = { kind: "field"; label: string; value: string } | { kind: "text"; text: string };
+
+export type BodySection = {
+  title: string;
+  items: BodyItem[];
+  // 値が書かれていない問い（「・強かった感情：」のまま）のラベル
+  emptyLabels: string[];
+};
+
+// 閲覧モード用。振り返りの本文を「■見出し」ごとのまとまりに分け、
+// 「・ラベル：値」の行は項目名と値に分ける。本文そのものは書き換えない
+export function parseBodySections(body: string): BodySection[] {
+  const sections: BodySection[] = [];
+  for (const rawLine of body.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("■")) {
+      sections.push({
+        title: trimmed.replace(/^■\s*/, "").replace(/^\d+[.．]\s*/, ""),
+        items: [],
+        emptyLabels: [],
+      });
+      continue;
+    }
+    if (sections.length === 0) sections.push({ title: "", items: [], emptyLabels: [] });
+    const section = sections[sections.length - 1];
+    const hasBullet = /^[・\-*]/.test(trimmed);
+    const line = trimmed.replace(/^[・\-*]+\s*/, "");
+    const colonIndex = line.indexOf("：");
+    // 半角コロンは時刻(09:30など)に使われるため区切りに使わない
+    if (colonIndex > 0 && (hasBullet || line.endsWith("："))) {
+      const label = line.slice(0, colonIndex).trim();
+      const value = line.slice(colonIndex + 1).trim();
+      if (value) section.items.push({ kind: "field", label, value });
+      else section.emptyLabels.push(label);
+      continue;
+    }
+    section.items.push({ kind: "text", text: trimmed });
+  }
+  return sections;
+}
+
+// 振り返りの記入状況。「・ラベル：」形式の問いが無いテンプレートでは total が0になる
+export function countBodyFields(body: string): { filled: number; total: number; hasText: boolean } {
+  let filled = 0;
+  let empty = 0;
+  let hasText = false;
+  for (const section of parseBodySections(body)) {
+    filled += section.items.filter((item) => item.kind === "field").length;
+    empty += section.emptyLabels.length;
+    if (section.items.some((item) => item.kind === "text")) hasText = true;
+  }
+  return { filled, total: filled + empty, hasText };
+}

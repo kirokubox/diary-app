@@ -3,8 +3,9 @@ import test from "node:test";
 import { normalizeImportedEntry, validateImportedEntry } from "../src/diaryHelpers";
 import { normalizeOptionalMoney, parseTimeMinutes } from "../src/lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "../src/markdown";
-import { weekStartOf, weekStartsEndingInMonth } from "../src/dateUtils";
+import { formatDateLabel, weekStartOf, weekStartsEndingInMonth } from "../src/dateUtils";
 import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "../src/periodReviews";
+import { countBodyFields, parseBodySections } from "../src/summary";
 import type { DiaryEntry, MonthlyReview, WeeklyReview } from "../src/types";
 
 function entry(date: string, patch: Partial<DiaryEntry> = {}): DiaryEntry {
@@ -173,4 +174,49 @@ test("全件Markdownは対応する日記が無くても週次・月次原文を
   assert.ok(markdown.includes(weekGoal));
   assert.ok(markdown.includes(monthReflection));
   assert.match(markdown, /# 週次・月次記録/);
+});
+
+test("閲覧用に、振り返りの本文を見出しごとの項目へ分ける", () => {
+  const body = [
+    "■1. 今日の事実",
+    "・生活：朝食、散歩",
+    "・仕事：",
+    "・起床：06:30",
+    "",
+    "■2. 今日の感情",
+    "・強かった感情：",
+    "",
+    "■明日の予定",
+    "歯医者に行く",
+  ].join("\n");
+  const sections = parseBodySections(body);
+  assert.deepEqual(
+    sections.map((section) => section.title),
+    ["今日の事実", "今日の感情", "明日の予定"],
+  );
+  assert.deepEqual(sections[0].items, [
+    { kind: "field", label: "生活", value: "朝食、散歩" },
+    { kind: "field", label: "起床", value: "06:30" },
+  ]);
+  assert.deepEqual(sections[0].emptyLabels, ["仕事"]);
+  assert.deepEqual(sections[1].items, []);
+  assert.deepEqual(sections[1].emptyLabels, ["強かった感情"]);
+  assert.deepEqual(sections[2].items, [{ kind: "text", text: "歯医者に行く" }]);
+  assert.deepEqual(countBodyFields(body), { filled: 2, total: 4, hasText: true });
+});
+
+test("見出しのない自由な文章も、そのまま1つのまとまりとして読める", () => {
+  const sections = parseBodySections("今日は休み。\n10:30に起きた。");
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0].title, "");
+  assert.deepEqual(sections[0].items, [
+    { kind: "text", text: "今日は休み。" },
+    { kind: "text", text: "10:30に起きた。" },
+  ]);
+  assert.deepEqual(countBodyFields(""), { filled: 0, total: 0, hasText: false });
+});
+
+test("画面の日付は、今年なら月日と曜日、別の年なら年を付ける", () => {
+  assert.equal(formatDateLabel("2026-07-15", "2026-10-12"), "7月15日（水）");
+  assert.equal(formatDateLabel("2025-12-31", "2026-10-12"), "2025年12月31日（水）");
 });

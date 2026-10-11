@@ -135,3 +135,14 @@ export function pickDailyStable<T>(items: T[], keyOf: (item: T) => string, dayKe
   }
   return best;
 }
+
+// 画面に出す日付。今年の日付は「10月12日（月）」、それ以外は年を付ける
+export function formatDateLabel(dateText: string, today = toDateInputValue()): string {
+  const [year, month, day] = dateText.split("-");
+  const base = `${Number(month)}月${Number(day)}日（${weekdayOf(dateText)}）`;
+  return year === today.slice(0, 4) ? base : `${Number(year)}年${base}`;
+}
+
+export function formatMonthLabel(monthText: string): string {
+  return `${Number(monthText.slice(0, 4))}年${Number(monthText.slice(5, 7))}月`;
+}

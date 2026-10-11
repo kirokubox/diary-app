@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
+import { Icon } from "./Icon";
 import type { DiaryPhoto } from "./types";
 
 export function PhotoViewer({
@@ -55,8 +56,8 @@ export function PhotoViewer({
         <span className="photo-viewer-count">
           {index + 1} / {photos.length}
         </span>
-        <button type="button" onClick={onClose}>
-          閉じる
+        <button className="viewer-btn" type="button" aria-label="閉じる" title="閉じる" onClick={onClose}>
+          <Icon name="x" />
         </button>
       </div>
       <div
@@ -73,16 +74,17 @@ export function PhotoViewer({
         )}
       </div>
       <div className="photo-viewer-actions">
-        <button type="button" disabled={index === 0} onClick={() => onMove(index - 1)}>
-          ◀ 前
+        <button className="viewer-btn" type="button" aria-label="前の写真" title="前の写真" disabled={index === 0} onClick={() => onMove(index - 1)}>
+          <Icon name="chevron-left" />
         </button>
         {editable && (
-          <button className="danger" type="button" onClick={() => void onDelete(photo)}>
+          <button className="viewer-btn danger" type="button" onClick={() => void onDelete(photo)}>
+            <Icon name="trash" size={18} />
             この写真を削除
           </button>
         )}
-        <button type="button" disabled={index >= photos.length - 1} onClick={() => onMove(index + 1)}>
-          次 ▶
+        <button className="viewer-btn" type="button" aria-label="次の写真" title="次の写真" disabled={index >= photos.length - 1} onClick={() => onMove(index + 1)}>
+          <Icon name="chevron-right" />
         </button>
       </div>
     </div>

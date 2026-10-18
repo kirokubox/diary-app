@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { addDays, formatDateLabel } from "./dateUtils";
+import { addDays, formatDateLabel, toDateInputValue } from "./dateUtils";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
 
@@ -22,8 +22,10 @@ export function IconButton({
   );
 }
 
-// 「◀ 日付 ▶」。日付の文字を押すとブラウザ標準の日付選択が開く
+// 「◀ 日付 ▶ 今日」。日付の文字を押すとブラウザ標準の日付選択が開く。
+// 「今日」は今日以外の日を開いているときだけ出す（過去の日記を読んだあと・前日の振り返りを追記したあとに戻る用）
 export function DateSwitcher({ date, onMove }: { date: string; onMove: (date: string) => void | Promise<void> }) {
+  const today = toDateInputValue();
   return (
     <div className="date-switcher">
       <IconButton icon="chevron-left" label="前の日" onClick={() => void onMove(addDays(date, -1))} />
@@ -46,6 +48,11 @@ export function DateSwitcher({ date, onMove }: { date: string; onMove: (date: st
         />
       </label>
       <IconButton icon="chevron-right" label="次の日" onClick={() => void onMove(addDays(date, 1))} />
+      {date !== today && (
+        <button className="today-btn" type="button" onClick={() => void onMove(today)}>
+          今日
+        </button>
+      )}
     </div>
   );
 }

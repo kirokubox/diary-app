@@ -175,6 +175,21 @@ main {
   width: 36px;
 }
 
+.today-btn {
+  flex: none;
+  min-height: var(--kb-tap);
+  padding: 0 var(--kb-space-2);
+  border-radius: var(--kb-radius-s);
+  color: var(--kb-accent);
+  font-size: var(--kb-fs-s);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.today-btn:active {
+  background: var(--kb-accent-soft);
+}
+
 .date-jump {
   position: relative;
   display: inline-flex;

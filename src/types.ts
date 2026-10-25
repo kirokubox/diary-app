@@ -71,6 +71,8 @@ export interface MonthlyReview {
 
 export interface AppSettings {
   template: string;
+  /** 週の目標・テーマを1つの長文欄へ書くときの初期テンプレート */
+  weeklyGoalTemplate: string;
   tagOptions: string[];
   version: string;
   dayBoundaryTime: string;

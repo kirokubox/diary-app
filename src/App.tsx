@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
-import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
+import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, DEFAULT_WEEKLY_GOAL_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
 import { formatMonthLabel, monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
@@ -54,6 +54,7 @@ export default function App() {
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [templateDraft, setTemplateDraft] = useState(DEFAULT_TEMPLATE);
+  const [weeklyGoalTemplateDraft, setWeeklyGoalTemplateDraft] = useState(DEFAULT_WEEKLY_GOAL_TEMPLATE);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importResult, setImportResult] = useState<{
     added: number;
@@ -95,6 +96,7 @@ export default function App() {
       ]);
       setSettings(loadedSettings);
       setTemplateDraft(loadedSettings.template);
+      setWeeklyGoalTemplateDraft(loadedSettings.weeklyGoalTemplate);
       setEntries(loadedEntries);
       setWeeklyReviews(loadedWeeklyReviews);
       setMonthlyReviews(loadedMonthlyReviews);
@@ -893,6 +895,21 @@ export default function App() {
     notify("初期テンプレートに戻しました");
   }
 
+  async function saveWeeklyGoalTemplate() {
+    const next = { ...settings, weeklyGoalTemplate: weeklyGoalTemplateDraft };
+    setSettings(next);
+    await saveSettings(next);
+    notify("週目標のテンプレートを保存しました");
+  }
+
+  async function resetWeeklyGoalTemplate() {
+    const next = { ...settings, weeklyGoalTemplate: DEFAULT_WEEKLY_GOAL_TEMPLATE };
+    setSettings(next);
+    setWeeklyGoalTemplateDraft(DEFAULT_WEEKLY_GOAL_TEMPLATE);
+    await saveSettings(next);
+    notify("週目標のテンプレートを最初の状態に戻しました");
+  }
+
   async function deleteAllData() {
     const typed = window.prompt("全データを削除するには「削除」と入力してください。");
     if (typed !== "削除") return;
@@ -904,6 +921,7 @@ export default function App() {
     await clearSettings();
     setSettings(DEFAULT_SETTINGS);
     setTemplateDraft(DEFAULT_SETTINGS.template);
+    setWeeklyGoalTemplateDraft(DEFAULT_SETTINGS.weeklyGoalTemplate);
     setEntries([]);
     setWeeklyReviews([]);
     setMonthlyReviews([]);
@@ -959,6 +977,7 @@ export default function App() {
               monthlyReviews={monthlyReviews}
               onSaveWeeklyReview={persistWeeklyReview}
               onSaveMonthlyReview={persistMonthlyReview}
+              weeklyGoalTemplate={settings.weeklyGoalTemplate}
             />
           )
         )}
@@ -1042,6 +1061,7 @@ export default function App() {
                     monthlyReviews={monthlyReviews}
                     onSaveWeekly={persistWeeklyReview}
                     onSaveMonthly={persistMonthlyReview}
+                    weeklyGoalTemplate={settings.weeklyGoalTemplate}
                   />
                   {entries.length === 0 ? (
                     <div className="empty-state">
@@ -1116,6 +1136,29 @@ export default function App() {
                       <button className="btn" onClick={resetTemplate} type="button">
                         最初の状態に戻す
                       </button>
+                    </div>
+                  </div>
+                </details>
+              </section>
+
+              <section className="list-section">
+                <h2 className="section-title">週目標のテンプレート</h2>
+                <details className="card details">
+                  <summary>
+                    テンプレートを編集
+                    <Icon name="chevron-down" size={18} />
+                  </summary>
+                  <div className="details-body">
+                    <textarea
+                      aria-label="週目標のテンプレート"
+                      className="template-editor"
+                      value={weeklyGoalTemplateDraft}
+                      onChange={(event) => setWeeklyGoalTemplateDraft(event.target.value)}
+                    />
+                    <p className="help">来週の目標が空のときだけ入力欄へ出します。保存済みの目標は変更しません。</p>
+                    <div className="action-row">
+                      <button className="btn primary" onClick={saveWeeklyGoalTemplate} type="button">保存</button>
+                      <button className="btn" onClick={resetWeeklyGoalTemplate} type="button">最初の状態に戻す</button>
                     </div>
                   </div>
                 </details>

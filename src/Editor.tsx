@@ -25,6 +25,7 @@ export function Editor({
   monthlyReviews,
   onSaveWeeklyReview,
   onSaveMonthlyReview,
+  weeklyGoalTemplate,
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
@@ -42,6 +43,7 @@ export function Editor({
   monthlyReviews: MonthlyReview[];
   onSaveWeeklyReview: (weekStart: string, goalTheme: string, reflection: string) => void | Promise<void>;
   onSaveMonthlyReview: (month: string, goalTheme: string, reflection: string) => void | Promise<void>;
+  weeklyGoalTemplate: string;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
@@ -100,6 +102,7 @@ export function Editor({
           monthlyReviews={monthlyReviews}
           onSaveWeekly={onSaveWeeklyReview}
           onSaveMonthly={onSaveMonthlyReview}
+          weeklyGoalTemplate={weeklyGoalTemplate}
         />
 
         <section className="fold body-area">

@@ -1,6 +1,6 @@
 import type { AppSettings, Energy, Mood } from "./types";
 
-export const APP_VERSION = "2.2.0";
+export const APP_VERSION = "2.3.0";
 
 export const DEFAULT_TEMPLATE = `■1. 今日の事実
 ・起床：
@@ -36,6 +36,18 @@ export const DEFAULT_TEMPLATE = `■1. 今日の事実
 
 ■らくがき帳`;
 
+export const DEFAULT_WEEKLY_GOAL_TEMPLATE = `まとめの1文：
+
+目指す状態：
+
+時間・場所：
+
+現状とのズレ：
+
+今週やりたいこと：
+
+対象外・やらなくていいこと：`;
+
 export const DEFAULT_TAG_OPTIONS = [
   "日記",
   "自分分析",
@@ -66,6 +78,7 @@ export const MOOD_OPTIONS: Mood[] = ["", "🙂", "😐", "☹️"];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   template: DEFAULT_TEMPLATE,
+  weeklyGoalTemplate: DEFAULT_WEEKLY_GOAL_TEMPLATE,
   tagOptions: DEFAULT_TAG_OPTIONS,
   version: APP_VERSION,
   dayBoundaryTime: "05:00",

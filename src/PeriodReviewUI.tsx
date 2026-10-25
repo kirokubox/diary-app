@@ -11,7 +11,7 @@ import {
   weekStartsEndingInMonth,
 } from "./dateUtils";
 import { Icon } from "./Icon";
-import { formatWeekRange } from "./periodReviews";
+import { formatWeekRange, weeklyGoalSummary } from "./periodReviews";
 import { IconButton } from "./ui";
 import type { MonthlyReview, WeeklyReview } from "./types";
 
@@ -21,6 +21,7 @@ type SaveMonthly = (month: string, goalTheme: string, reflection: string) => voi
 export function PeriodGoalSummary({ weekly, monthly }: { weekly?: WeeklyReview; monthly?: MonthlyReview }) {
   const [expanded, setExpanded] = useState<"week" | "month" | null>(null);
   const weekText = weekly?.goalTheme.trim() ?? "";
+  const weekSummary = weeklyGoalSummary(weekText);
   const monthText = monthly?.goalTheme.trim() ?? "";
 
   useEffect(() => setExpanded(null), [weekly?.weekStart, monthly?.month]);
@@ -31,7 +32,7 @@ export function PeriodGoalSummary({ weekly, monthly }: { weekly?: WeeklyReview; 
       {weekText && (
         <div className="period-goal-item primary-goal">
           <p className="period-goal-label">今週</p>
-          <p className={expanded === "week" ? "period-goal-text expanded" : "period-goal-text week-preview"}>{weekText}</p>
+          <p className={expanded === "week" ? "period-goal-text expanded" : "period-goal-text week-preview"}>{expanded === "week" ? weekText : weekSummary}</p>
           <button className="text-toggle" type="button" onClick={() => setExpanded(expanded === "week" ? null : "week")}>
             {expanded === "week" ? "閉じる" : "続きを読む"}
           </button>
@@ -56,6 +57,7 @@ function BoundaryPanel({
   goalLabel,
   reflection,
   goalTheme,
+  goalTemplate,
   onSave,
 }: {
   title: string;
@@ -63,18 +65,19 @@ function BoundaryPanel({
   goalLabel: string;
   reflection: string;
   goalTheme: string;
+  goalTemplate?: string;
   onSave: (reflection: string, goalTheme: string) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [reflectionDraft, setReflectionDraft] = useState(reflection);
-  const [goalDraft, setGoalDraft] = useState(goalTheme);
+  const [goalDraft, setGoalDraft] = useState(goalTheme.trim() ? goalTheme : goalTemplate ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setOpen(false);
     setReflectionDraft(reflection);
-    setGoalDraft(goalTheme);
-  }, [title, reflection, goalTheme]);
+    setGoalDraft(goalTheme.trim() ? goalTheme : goalTemplate ?? "");
+  }, [title, reflection, goalTheme, goalTemplate]);
 
   async function save() {
     setSaving(true);
@@ -127,12 +130,14 @@ export function BoundaryReviewEntries({
   monthlyReviews,
   onSaveWeekly,
   onSaveMonthly,
+  weeklyGoalTemplate,
 }: {
   date: string;
   weeklyReviews: WeeklyReview[];
   monthlyReviews: MonthlyReview[];
   onSaveWeekly: SaveWeekly;
   onSaveMonthly: SaveMonthly;
+  weeklyGoalTemplate: string;
 }) {
   const currentWeekStart = weekStartOf(date);
   const nextWeekStart = addDays(currentWeekStart, 7);
@@ -154,6 +159,7 @@ export function BoundaryReviewEntries({
           goalLabel="来週の目標・テーマ"
           reflection={currentWeek?.reflection ?? ""}
           goalTheme={nextWeek?.goalTheme ?? ""}
+          goalTemplate={weeklyGoalTemplate}
           onSave={async (reflection, goalTheme) => {
             await onSaveWeekly(currentWeekStart, currentWeek?.goalTheme ?? "", reflection);
             await onSaveWeekly(nextWeekStart, goalTheme, nextWeek?.reflection ?? "");
@@ -195,23 +201,27 @@ function ReviewAccordion({
   goalTheme,
   reflection,
   onSave,
+  goalTemplate,
+  summarizeGoal = false,
 }: {
   label: string;
   goalTheme: string;
   reflection: string;
   onSave: (goalTheme: string, reflection: string) => void | Promise<void>;
+  goalTemplate?: string;
+  summarizeGoal?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [goalDraft, setGoalDraft] = useState(goalTheme);
+  const [goalDraft, setGoalDraft] = useState(goalTheme.trim() ? goalTheme : goalTemplate ?? "");
   const [reflectionDraft, setReflectionDraft] = useState(reflection);
 
   useEffect(() => {
     setOpen(false);
     setEditing(false);
-    setGoalDraft(goalTheme);
+    setGoalDraft(goalTheme.trim() ? goalTheme : goalTemplate ?? "");
     setReflectionDraft(reflection);
-  }, [label, goalTheme, reflection]);
+  }, [label, goalTheme, reflection, goalTemplate]);
 
   async function save() {
     await onSave(goalDraft, reflectionDraft);
@@ -227,7 +237,7 @@ function ReviewAccordion({
         </span>
         <strong>{label}</strong>
       </button>
-      {!open && goalTheme.trim() && <p className="period-record-preview">{goalTheme}</p>}
+      {!open && goalTheme.trim() && <p className="period-record-preview">{summarizeGoal ? weeklyGoalSummary(goalTheme) : goalTheme}</p>}
       {open && !editing && (
         <div className="period-record-body">
           <h3>目標・テーマ</h3>
@@ -267,6 +277,7 @@ export function MonthlyReviewHub({
   monthlyReviews,
   onSaveWeekly,
   onSaveMonthly,
+  weeklyGoalTemplate,
 }: {
   selectedMonth: string;
   onMonthChange: (month: string) => void;
@@ -274,6 +285,7 @@ export function MonthlyReviewHub({
   monthlyReviews: MonthlyReview[];
   onSaveWeekly: SaveWeekly;
   onSaveMonthly: SaveMonthly;
+  weeklyGoalTemplate: string;
 }) {
   const monthReview = monthlyReviews.find((item) => item.month === selectedMonth);
   const weeks = useMemo(() => weekStartsEndingInMonth(selectedMonth), [selectedMonth]);
@@ -325,6 +337,8 @@ export function MonthlyReviewHub({
                   label={formatWeekRange(weekStart)}
                   goalTheme={review?.goalTheme ?? ""}
                   reflection={review?.reflection ?? ""}
+                  goalTemplate={weeklyGoalTemplate}
+                  summarizeGoal
                   onSave={(goalTheme, reflection) => onSaveWeekly(weekStart, goalTheme, reflection)}
                 />
               );

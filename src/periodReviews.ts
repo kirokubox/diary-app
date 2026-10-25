@@ -12,6 +12,22 @@ export type PeriodMarkdownContext = {
   nextMonth?: MonthlyReview;
 };
 
+/** 週目標の閉じた表示。項目式なら「まとめの1文」、旧形式なら先頭行を使う。 */
+export function weeklyGoalSummary(goalTheme: string): string {
+  const lines = goalTheme.split(/\r?\n/).map((line) => line.trim());
+  const summaryIndex = lines.findIndex((line) => /^まとめの1文[：:]/.test(line));
+  if (summaryIndex >= 0) {
+    const sameLine = lines[summaryIndex].replace(/^まとめの1文[：:]\s*/, "").trim();
+    if (sameLine) return sameLine;
+    for (let i = summaryIndex + 1; i < lines.length; i += 1) {
+      if (/^[^：:]+[：:]\s*/.test(lines[i])) break;
+      if (lines[i]) return lines[i];
+    }
+    return "";
+  }
+  return lines.find(Boolean) ?? "";
+}
+
 export function makeWeeklyReview(weekStart: string, now: string): WeeklyReview {
   return { weekStart, goalTheme: "", reflection: "", createdAt: now, updatedAt: now };
 }

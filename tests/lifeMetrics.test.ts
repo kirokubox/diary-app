@@ -4,7 +4,7 @@ import { normalizeImportedEntry, validateImportedEntry } from "../src/diaryHelpe
 import { normalizeOptionalMoney, parseTimeMinutes } from "../src/lifeMetrics";
 import { entriesToMarkdown, entryToMarkdown } from "../src/markdown";
 import { formatDateLabel, weekStartOf, weekStartsEndingInMonth } from "../src/dateUtils";
-import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "../src/periodReviews";
+import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate, weeklyGoalSummary } from "../src/periodReviews";
 import { countBodyFields, parseBodySections } from "../src/summary";
 import type { DiaryEntry, MonthlyReview, WeeklyReview } from "../src/types";
 
@@ -174,6 +174,13 @@ test("全件Markdownは対応する日記が無くても週次・月次原文を
   assert.ok(markdown.includes(weekGoal));
   assert.ok(markdown.includes(monthReflection));
   assert.match(markdown, /# 週次・月次記録/);
+});
+
+test("週目標の閉じた表示はまとめの1文を優先し、旧形式は先頭行を使う", () => {
+  assert.equal(weeklyGoalSummary("まとめの1文：仕事後を自分で選ぶ\n\n目指す状態：読書する"), "仕事後を自分で選ぶ");
+  assert.equal(weeklyGoalSummary("まとめの1文：\n流されずに過ごす\n\n目指す状態：読書する"), "流されずに過ごす");
+  assert.equal(weeklyGoalSummary("まとめの1文：\n\n目指す状態：読書する"), "");
+  assert.equal(weeklyGoalSummary("以前からある自由文\n理由も残す"), "以前からある自由文");
 });
 
 test("閲覧用に、振り返りの本文を見出しごとの項目へ分ける", () => {

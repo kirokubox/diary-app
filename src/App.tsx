@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
-import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, DEFAULT_WEEKLY_GOAL_TEMPLATE, PHOTO_MAX_COUNT } from "./constants";
+import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, DEFAULT_WEEKLY_GOAL_TEMPLATE, PHOTO_MAX_COUNT, TEMPLATE_PRESETS } from "./constants";
 import { formatMonthLabel, monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
@@ -887,12 +887,11 @@ export default function App() {
     notify("テンプレートを保存しました");
   }
 
-  async function resetTemplate() {
-    const next = { ...settings, template: DEFAULT_TEMPLATE };
-    setSettings(next);
-    setTemplateDraft(DEFAULT_TEMPLATE);
-    await saveSettings(next);
-    notify("初期テンプレートに戻しました");
+  // ひな形は編集欄に読み込むだけ。保存は「保存」ボタンで行う
+  function loadTemplatePreset(body: string) {
+    if (templateDraft === body) return;
+    if (templateDraft.trim() && !window.confirm("編集欄の内容をひな形で置き換えます。よろしいですか？")) return;
+    setTemplateDraft(body);
   }
 
   async function saveWeeklyGoalTemplate() {
@@ -1123,18 +1122,32 @@ export default function App() {
                     <Icon name="chevron-down" size={18} />
                   </summary>
                   <div className="details-body">
+                    <p className="help">ひな形から選ぶ</p>
+                    <div className="template-presets">
+                      {TEMPLATE_PRESETS.map((preset) => (
+                        <button
+                          className="template-preset"
+                          key={preset.id}
+                          onClick={() => loadTemplatePreset(preset.body)}
+                          type="button"
+                        >
+                          <span className="template-preset-label">{preset.label}</span>
+                          <span className="template-preset-desc">{preset.description}</span>
+                        </button>
+                      ))}
+                    </div>
                     <textarea
                       aria-label="振り返りのテンプレート"
                       className="template-editor"
                       value={templateDraft}
                       onChange={(event) => setTemplateDraft(event.target.value)}
                     />
+                    <p className="help">
+                      ひな形を選ぶと編集欄に読み込みます。「保存」を押すまで変わりません。保存しても書いた日記は変わらず、新しい日の本文にだけ使います。
+                    </p>
                     <div className="action-row">
                       <button className="btn primary" onClick={saveTemplate} type="button">
                         保存
-                      </button>
-                      <button className="btn" onClick={resetTemplate} type="button">
-                        最初の状態に戻す
                       </button>
                     </div>
                   </div>

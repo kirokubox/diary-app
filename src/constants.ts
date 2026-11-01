@@ -1,40 +1,58 @@
 import type { AppSettings, Energy, Mood } from "./types";
 
-export const APP_VERSION = "2.3.0";
+export const APP_VERSION = "2.4.0";
 
+// 標準：事実・感情・振り返りを分けて書く形（作者が使っている形）
 export const DEFAULT_TEMPLATE = `■1. 今日の事実
-・起床：
-・睡眠時間：
-・主にやったこと：
-・人との関わり：
-・作業（就活 / 発信 / その他）：
-・今日の流れを一言で：
+・生活：
+・仕事：
+・人：
+・作業：
+・楽しみ：
 
 ■2. 今日の感情
-・強かった感情：
-・そのきっかけ：
-・本音（本当はどうしたかった？）：
+・感情とその背景：
+・本音：
 ・満たされたもの / 足りなかったもの：
 
-■3. 今日の分析
+■3. 今日の振り返り
 ・うまくいったこと：
-・詰まったこと：
-・その理由やトリガー：
-・助けになったもの：
-・今日はどんな1日だった？：
+・引っかかったこと：
+・今日気づいたこと：
 
-■4. 明日につなげる（必要なら）
-・明日の最初の1歩：
+■4. AIに報連相
+`;
 
-■5. 一言ログ
-・今日を1〜3行でまとめる：
-・今日の自分を一言で：
+// 一般的な日記の形。短く書ける問いだけにする
+export const SIMPLE_TEMPLATE = `■1. 今日のできごと
+・したこと：
+・会った人：
 
-■明日の予定
+■2. 気持ち
+・うれしかったこと：
+・もやっとしたこと：
 
-■明日やりたいこと
+■3. ひとこと
+・今日を一言で：
+・明日やりたいこと：
+`;
 
-■らくがき帳`;
+export type TemplatePreset = { id: string; label: string; description: string; body: string };
+
+export const TEMPLATE_PRESETS: TemplatePreset[] = [
+  {
+    id: "standard",
+    label: "振り返り（標準）",
+    description: "事実・感情・振り返りを分けて書く",
+    body: DEFAULT_TEMPLATE,
+  },
+  {
+    id: "simple",
+    label: "シンプルな日記",
+    description: "できごと・気持ち・ひとことだけ",
+    body: SIMPLE_TEMPLATE,
+  },
+];
 
 export const DEFAULT_WEEKLY_GOAL_TEMPLATE = `まとめの1文：
 

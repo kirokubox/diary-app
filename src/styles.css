@@ -1399,3 +1399,41 @@ main {
     gap: 0;
   }
 }
+
+/* テンプレートのひな形（設定） */
+.template-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--kb-space-2);
+  margin-bottom: var(--kb-space-3);
+}
+
+.template-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: var(--kb-tap);
+  padding: var(--kb-space-2) var(--kb-space-3);
+  border: 1px solid var(--kb-line-strong);
+  border-radius: var(--kb-radius-m);
+  background: var(--kb-surface);
+  color: var(--kb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.template-preset:active {
+  background: var(--kb-accent-soft);
+}
+
+.template-preset-label {
+  font-size: var(--kb-fs-m);
+  font-weight: 600;
+}
+
+.template-preset-desc {
+  font-size: var(--kb-fs-xs);
+  color: var(--kb-text-2);
+}

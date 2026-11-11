@@ -116,11 +116,27 @@ function store<T>(
       new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, mode);
         const request = action(tx.objectStore(storeName));
-        request.onsuccess = () => resolve(request.result);
+        let result: T;
+        request.onsuccess = () => {
+          result = request.result;
+        };
         request.onerror = () => reject(request.error);
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error("保存処理が取り消されました。"));
+        tx.oncomplete = () => resolve(result);
       }),
   );
+}
+
+/** ブラウザに「端末内のデータを自動削除しないで」と頼む。拒否・未対応でもアプリは使える。 */
+export async function requestPersist(): Promise<boolean | null> {
+  if (!navigator.storage?.persist) return null;
+  try {
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return null;
+  }
 }
 
 export async function getAllEntries(): Promise<DiaryEntry[]> {

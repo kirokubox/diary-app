@@ -15,7 +15,7 @@ import { MonthlyReviewHub } from "./PeriodReviewUI";
 import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "./periodReviews";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { ReadingView } from "./ReadingView";
-import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
+import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, requestPersist, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
 import { buildSearchSnippet } from "./summary";
 import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
 import { createZipBlob, readZipEntries } from "./zip";
@@ -32,6 +32,7 @@ export default function App() {
   const [activeDate, setActiveDate] = useState(toDateInputValue());
   const [entry, setEntry] = useState<DiaryEntry | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState("");
   const [toast, setToast] = useState("");
   const saveTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
@@ -103,6 +104,7 @@ export default function App() {
       setActiveDate(initialDate);
       setEntry(loadedEntry ?? makeEntry(initialDate, loadedSettings));
       hydrated.current = true;
+      void requestPersist();
       // 写真の保存中にアプリを閉じた場合など、どの日記からも参照されていない画像を掃除する
       try {
         await deleteUnreferencedPhotos(
@@ -128,7 +130,7 @@ export default function App() {
     function flush() {
       if (document.visibilityState !== "hidden") return;
       const current = entryRef.current;
-      if (current && saveStateRef.current === "dirty") void persistEntry(current);
+      if (current && (saveStateRef.current === "dirty" || saveStateRef.current === "error")) void persistEntry(current);
     }
     document.addEventListener("visibilitychange", flush);
     return () => document.removeEventListener("visibilitychange", flush);
@@ -184,34 +186,53 @@ export default function App() {
     window.setTimeout(() => setToast(""), 2200);
   }
 
-  async function persistEntry(target: DiaryEntry) {
+  async function persistEntry(target: DiaryEntry): Promise<boolean> {
+    const currentAtStart = entryRef.current;
     setSaveState("saving");
-    const existing = await getEntry(target.id);
-    const saved: DiaryEntry = {
-      ...target,
-      createdAt: existing?.createdAt ?? target.createdAt,
-      updatedAt: nowIsoLocal(),
-      weekday: weekdayOf(target.date),
-      tags: target.tags.map(cleanTag).filter(Boolean),
-      scratch: typeof target.scratch === "string" ? target.scratch : "",
-      scratchItems: normalizeScratchItems(target.scratchItems),
-      photos: normalizePhotoMeta(target.photos),
-      wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
-      bedTime: typeof target.bedTime === "string" && parseTimeMinutes(target.bedTime) !== null ? target.bedTime : "",
-      sleepHours: parseHours(target.sleepHours),
-      napHours: parseHours(target.napHours),
-      napMinutes:
-        typeof target.napMinutes === "number" && Number.isFinite(target.napMinutes) && target.napMinutes >= 0
-          ? Math.round(target.napMinutes)
-          : null,
-      everydayExpense: normalizeOptionalMoney(target.everydayExpense),
-      satisfactionExpense: normalizeOptionalMoney(target.satisfactionExpense),
-      regretExpense: normalizeOptionalMoney(target.regretExpense),
-    };
-    await saveEntry(saved);
-    setEntry(saved);
-    await refreshEntries();
-    setSaveState("saved");
+    setSaveError("");
+    try {
+      const existing = await getEntry(target.id);
+      const saved: DiaryEntry = {
+        ...target,
+        createdAt: existing?.createdAt ?? target.createdAt,
+        updatedAt: nowIsoLocal(),
+        weekday: weekdayOf(target.date),
+        tags: target.tags.map(cleanTag).filter(Boolean),
+        scratch: typeof target.scratch === "string" ? target.scratch : "",
+        scratchItems: normalizeScratchItems(target.scratchItems),
+        photos: normalizePhotoMeta(target.photos),
+        wakeUpTime: typeof target.wakeUpTime === "string" ? target.wakeUpTime : "",
+        bedTime: typeof target.bedTime === "string" && parseTimeMinutes(target.bedTime) !== null ? target.bedTime : "",
+        sleepHours: parseHours(target.sleepHours),
+        napHours: parseHours(target.napHours),
+        napMinutes:
+          typeof target.napMinutes === "number" && Number.isFinite(target.napMinutes) && target.napMinutes >= 0
+            ? Math.round(target.napMinutes)
+            : null,
+        everydayExpense: normalizeOptionalMoney(target.everydayExpense),
+        satisfactionExpense: normalizeOptionalMoney(target.satisfactionExpense),
+        regretExpense: normalizeOptionalMoney(target.regretExpense),
+      };
+      await saveEntry(saved);
+      await refreshEntries();
+      if (entryRef.current === currentAtStart) {
+        setEntry(saved);
+        setSaveState("saved");
+      } else {
+        // 保存中に追記された内容は画面に残し、続けてもう一度保存する。
+        setSaveState("dirty");
+      }
+      return true;
+    } catch {
+      setSaveError("保存できませんでした。書いた内容はこの画面に残っています。通信ではなく端末内の保存処理の問題です。もう一度保存してください。");
+      setSaveState("error");
+      return false;
+    }
+  }
+
+  function retrySave() {
+    const current = entryRef.current;
+    if (current) void persistEntry(current);
   }
 
   async function persistWeeklyReview(weekStart: string, goalTheme: string, reflection: string) {
@@ -302,7 +323,12 @@ export default function App() {
         const latest = entryRef.current;
         if (latest && latest.date === targetDate) {
           // 変換中に書かれた文字も一緒に保存する
-          await persistEntry({ ...latest, photos: [...latest.photos, ...addedPhotos] });
+          const next = { ...latest, photos: [...latest.photos, ...addedPhotos] };
+          entryRef.current = next;
+          setEntry(next);
+          if (!(await persistEntry(next))) {
+            throw new Error("日記を保存できませんでした。");
+          }
         } else {
           // 変換中に別の日付へ移動した場合は、写真を撮った日の日記へ直接書き込む
           const stored = (await getEntry(targetDate)) ?? current;
@@ -338,7 +364,10 @@ export default function App() {
     const ok = window.confirm("この写真を削除しますか？\n\n日記の文字と他の写真は残ります。");
     if (!ok) return false;
     try {
-      await persistEntry({ ...current, photos: current.photos.filter((item) => item.id !== photo.id) });
+      const next = { ...current, photos: current.photos.filter((item) => item.id !== photo.id) };
+      entryRef.current = next;
+      setEntry(next);
+      if (!(await persistEntry(next))) return false;
     } catch {
       notify("写真を削除できませんでした");
       return false;
@@ -355,8 +384,8 @@ export default function App() {
   }
 
   async function openDate(date: string) {
-    if (entry && saveState === "dirty") {
-      await persistEntry(entry);
+    if (entry && (saveState === "dirty" || saveState === "error")) {
+      if (!(await persistEntry(entry))) return;
     }
     setEntryViewMode("edit");
     setInitialBodyExpanded(false);
@@ -367,8 +396,8 @@ export default function App() {
 
   // 一覧・検索・グラフ・メモリーカードからの遷移は閲覧モードで開く
   async function openDateForReading(date: string) {
-    if (entry && saveState === "dirty") {
-      await persistEntry(entry);
+    if (entry && (saveState === "dirty" || saveState === "error")) {
+      if (!(await persistEntry(entry))) return;
     }
     setEntryViewMode("read");
     setActiveDate(date);
@@ -384,7 +413,7 @@ export default function App() {
 
   async function exportEntryMarkdown() {
     if (!entry) return;
-    await persistEntry(entry);
+    if (!(await persistEntry(entry))) return;
     downloadText(
       `diary-${entry.date}.md`,
       entryToMarkdown(
@@ -962,6 +991,8 @@ export default function App() {
             <Editor
               entry={entry}
               saveState={saveState}
+              saveError={saveError}
+              onRetrySave={retrySave}
               onChange={updateEntry}
               onExportMarkdown={() => void exportEntryMarkdown()}
               onMoveDate={openDate}

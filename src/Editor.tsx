@@ -11,6 +11,8 @@ import { AppBar, DateSwitcher, OverflowMenu } from "./ui";
 export function Editor({
   entry,
   saveState,
+  saveError,
+  onRetrySave,
   onChange,
   onExportMarkdown,
   onMoveDate,
@@ -29,6 +31,8 @@ export function Editor({
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
+  saveError: string;
+  onRetrySave: () => void;
   onChange: (entry: DiaryEntry) => void;
   onExportMarkdown: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
@@ -80,7 +84,7 @@ export function Editor({
         <DateSwitcher date={entry.date} onMove={onMoveDate} />
         <span className="spacer" />
         <span className={`save-badge ${saveState}`} aria-live="polite">
-          {saveState === "saving" ? "保存中" : saveState === "dirty" ? "編集中" : "保存済み"}
+          {saveState === "saving" ? "保存中" : saveState === "dirty" ? "編集中" : saveState === "error" ? "保存失敗" : "保存済み"}
         </span>
         <OverflowMenu
           items={[
@@ -91,6 +95,12 @@ export function Editor({
       </AppBar>
 
       <div className="screen-body">
+        {saveError && (
+          <div className="save-error" role="alert">
+            <p>{saveError}</p>
+            <button className="btn" type="button" onClick={onRetrySave}>もう一度保存</button>
+          </div>
+        )}
         <PeriodGoalSummary
           weekly={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
           monthly={monthlyReviews.find((item) => item.month === monthOf(entry.date))}

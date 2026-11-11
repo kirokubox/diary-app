@@ -241,6 +241,11 @@ main {
   color: var(--kb-accent-strong);
 }
 
+.save-badge.error {
+  background: var(--kb-danger-soft);
+  color: var(--kb-danger);
+}
+
 .count {
   margin-right: var(--kb-space-2);
 }
@@ -418,6 +423,29 @@ main {
 
 .status-line {
   text-align: center;
+}
+
+.save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kb-space-3);
+  border-radius: var(--kb-radius-m);
+  padding: var(--kb-space-3) var(--kb-space-4);
+  background: var(--kb-danger-soft);
+  color: var(--kb-danger);
+  font-size: var(--kb-fs-s);
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.save-error p {
+  flex: 1;
+}
+
+.save-error .btn {
+  flex: none;
+  background: var(--kb-surface);
 }
 
 .empty-state {

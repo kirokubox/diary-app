@@ -91,4 +91,4 @@ export interface DiaryExport {
 }
 
 export type TabKey = "today" | "list" | "settings";
-export type SaveState = "idle" | "dirty" | "saving" | "saved";
+export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { monthOf, timeOnly, weekStartOf } from "./dateUtils";
 import { makeScratchItem } from "./diaryHelpers";
 import { Icon } from "./Icon";
+import { InlineMemories } from "./InlineMemories";
+import type { InlineMemory } from "./InlineMemories";
 import { PhotoSection } from "./PhotoSection";
 import { BoundaryReviewEntries, PeriodGoalSummary } from "./PeriodReviewUI";
 import { countBodyFields } from "./summary";
@@ -15,6 +17,7 @@ export function Editor({
   onRetrySave,
   onChange,
   onExportMarkdown,
+  onExportHorenso,
   onMoveDate,
   onDelete,
   initialBodyExpanded,
@@ -28,6 +31,7 @@ export function Editor({
   onSaveWeeklyReview,
   onSaveMonthlyReview,
   weeklyGoalTemplate,
+  inlineMemories,
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
@@ -35,6 +39,7 @@ export function Editor({
   onRetrySave: () => void;
   onChange: (entry: DiaryEntry) => void;
   onExportMarkdown: () => void;
+  onExportHorenso: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
   initialBodyExpanded: boolean;
@@ -48,6 +53,7 @@ export function Editor({
   onSaveWeeklyReview: (weekStart: string, goalTheme: string, reflection: string) => void | Promise<void>;
   onSaveMonthlyReview: (month: string, goalTheme: string, reflection: string) => void | Promise<void>;
   weeklyGoalTemplate: string;
+  inlineMemories: InlineMemory[];
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
@@ -89,6 +95,7 @@ export function Editor({
         <OverflowMenu
           items={[
             { label: "この日をテキストで書き出す", icon: "text", onSelect: onExportMarkdown },
+            { label: "報連相だけ書き出す", icon: "text", onSelect: onExportHorenso },
             { label: "この日の日記を削除", icon: "trash", danger: true, onSelect: onDelete },
           ]}
         />
@@ -203,6 +210,8 @@ export function Editor({
           onAddFiles={onAddPhotos}
           onDeletePhoto={onDeletePhoto}
         />
+
+        <InlineMemories activeDate={entry.date} items={inlineMemories} />
 
         <p className="status-line">最後に保存した時刻：{timeOnly(entry.updatedAt)}</p>
       </div>

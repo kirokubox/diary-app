@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeImportedEntry, validateImportedEntry } from "../src/diaryHelpers";
 import { normalizeOptionalMoney, parseTimeMinutes } from "../src/lifeMetrics";
-import { entriesToMarkdown, entryToMarkdown } from "../src/markdown";
+import { entriesToMarkdown, entryHorensoToMarkdown, entryToMarkdown } from "../src/markdown";
 import { formatDateLabel, weekStartOf, weekStartsEndingInMonth } from "../src/dateUtils";
 import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate, weeklyGoalSummary } from "../src/periodReviews";
-import { countBodyFields, parseBodySections } from "../src/summary";
+import { countBodyFields, extractHorensoSection, parseBodySections } from "../src/summary";
 import type { DiaryEntry, MonthlyReview, WeeklyReview } from "../src/types";
 
 function entry(date: string, patch: Partial<DiaryEntry> = {}): DiaryEntry {
@@ -226,4 +226,33 @@ test("見出しのない自由な文章も、そのまま1つのまとまりと�
 test("画面の日付は、今年なら月日と曜日、別の年なら年を付ける", () => {
   assert.equal(formatDateLabel("2026-07-15", "2026-10-12"), "7月15日（水）");
   assert.equal(formatDateLabel("2025-12-31", "2026-10-12"), "2025年12月31日（水）");
+});
+
+test("報連相は見出し番号に依存せず、次の■見出しの直前まで抽出する", () => {
+  const body = [
+    "■1. 今日の事実",
+    "・作業：実装した",
+    "",
+    "■9. AIに報連相",
+    "相談したいこと",
+    "2行目",
+    "",
+    "■10. 次の節",
+    "ここは含めない",
+  ].join("\n");
+  assert.equal(extractHorensoSection(body), "■9. AIに報連相\n相談したいこと\n2行目");
+});
+
+test("報連相の見出しがない場合と本文が空の場合は書き出さない", () => {
+  assert.equal(extractHorensoSection("■1. 今日の事実\n内容"), null);
+  assert.equal(extractHorensoSection("■4. AIに報連相\n\n"), null);
+  assert.equal(entryHorensoToMarkdown(entry("2026-11-15", { body: "■4. AIに報連相\n" })), null);
+});
+
+test("報連相Markdownは日付見出しと抽出した節だけを出す", () => {
+  const markdown = entryHorensoToMarkdown(entry("2026-11-15", {
+    weekday: "日",
+    body: "■1. 今日の事実\n不要\n■4. AIに報連相\n共有内容\n■5. 次\n不要",
+  }));
+  assert.equal(markdown, "## 2026/11/15（日）\n\n■4. AIに報連相\n共有内容");
 });

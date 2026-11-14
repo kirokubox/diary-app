@@ -1,5 +1,6 @@
 import { formatDateJa, isFirstDayOfMonth, isLastDayOfMonth, isSunday, nowIsoLocal, timeOnly } from "./dateUtils";
 import type { PeriodMarkdownContext } from "./periodReviews";
+import { extractHorensoSection } from "./summary";
 import type { DiaryEntry, MonthlyReview, WeeklyReview } from "./types";
 
 function valueOrBlank(value: string | undefined): string {
@@ -62,6 +63,12 @@ ${valueOrBlank(entry.scratch)}
 ${photoSection}${periodSections(entry, context)}### らくがきメモ履歴
 
 ${scratchHistory}`;
+}
+
+export function entryHorensoToMarkdown(entry: DiaryEntry): string | null {
+  const section = extractHorensoSection(entry.body);
+  if (!section) return null;
+  return `## ${formatDateJa(entry.date)}（${entry.weekday}）\n\n${section}`;
 }
 
 export function entriesToMarkdown(

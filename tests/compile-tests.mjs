@@ -33,6 +33,7 @@ await compile("src/diaryHelpers.ts", "diaryHelpers.mjs", [
 await compile("src/markdown.ts", "markdown.mjs", [
   ["./dateUtils", "./dateUtils.mjs"],
   ["./periodReviews", "./periodReviews.mjs"],
+  ["./summary", "./summary.mjs"],
 ]);
 await compile("src/summary.ts", "summary.mjs");
 await compile("tests/lifeMetrics.test.ts", "lifeMetrics.test.mjs", [

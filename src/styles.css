@@ -861,6 +861,55 @@ main {
   overflow-wrap: anywhere;
 }
 
+/* ---------- 入力画面内の過去の日記 ---------- */
+
+.inline-memories {
+  display: grid;
+  gap: var(--kb-space-2);
+}
+
+.inline-memory-list {
+  overflow: hidden;
+  border-radius: var(--kb-radius-m);
+  background: var(--kb-surface);
+  box-shadow: 0 0 0 1px var(--kb-line);
+}
+
+.inline-memory + .inline-memory {
+  border-top: 1px solid var(--kb-line);
+}
+
+.inline-memory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kb-space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--kb-space-4);
+  color: var(--kb-text);
+  font-size: var(--kb-fs-m);
+  font-weight: 700;
+  text-align: left;
+}
+
+.inline-memory-head:active {
+  background: var(--kb-surface-2);
+}
+
+.inline-memory-body {
+  display: grid;
+  gap: var(--kb-space-4);
+  border-top: 1px solid var(--kb-line);
+  padding: var(--kb-space-4);
+  background: var(--kb-surface-2);
+}
+
+.inline-memory-body .reading-section {
+  display: grid;
+  gap: var(--kb-space-2);
+}
+
 /* ---------- 写真 ---------- */
 
 .photo-area {

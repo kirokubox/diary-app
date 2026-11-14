@@ -219,3 +219,21 @@ export function countBodyFields(body: string): { filled: number; total: number; 
   }
   return { filled, total: filled + empty, hasText };
 }
+
+// 「■」で始まり「報連相」を含む見出しから、次の「■」見出しの直前までを抽出する。
+// 見出し番号や文言の前後には依存せず、本文が空なら書き出し対象なしとする。
+export function extractHorensoSection(body: string): string | null {
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => line.trimStart().startsWith("■") && line.includes("報連相"));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (lines[index].trimStart().startsWith("■")) {
+      end = index;
+      break;
+    }
+  }
+  const content = lines.slice(start + 1, end).join("\n").trim();
+  if (!content) return null;
+  return [lines[start].trimEnd(), content].join("\n");
+}

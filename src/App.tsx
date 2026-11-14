@@ -9,7 +9,7 @@ import { downloadBlob, downloadText } from "./fileUtils";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
 import { normalizeOptionalMoney, parseTimeMinutes } from "./lifeMetrics";
-import { entriesToMarkdown, entryToMarkdown } from "./markdown";
+import { entriesToMarkdown, entryHorensoToMarkdown, entryToMarkdown } from "./markdown";
 import { MemoryCard } from "./MemoryCard";
 import { MonthlyReviewHub } from "./PeriodReviewUI";
 import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "./periodReviews";
@@ -436,6 +436,29 @@ export default function App() {
     notify("テキストで書き出しました");
   }
 
+  function downloadHorenso(target: DiaryEntry) {
+    const markdown = entryHorensoToMarkdown(target);
+    if (!markdown) {
+      notify("報連相の本文がないため、書き出しませんでした");
+      return;
+    }
+    downloadText(`diary-${target.date}-horenso.md`, markdown, "text/markdown");
+    notify("報連相だけ書き出しました");
+  }
+
+  // 入力モードでは、画面の最新内容を端末へ保存できたことを確認してから書き出す。
+  async function exportHorenso() {
+    if (!entry) return;
+    if (!(await persistEntry(entry))) return;
+    downloadHorenso(entry);
+  }
+
+  // 閲覧モードは保存済みの日記をそのまま書き出し、保存処理は行わない。
+  function exportHorensoWithoutSave() {
+    if (!entry) return;
+    downloadHorenso(entry);
+  }
+
   async function removeCurrentEntry() {
     if (!entry) return;
     const typed = window.prompt("削除するには「削除」と入力してください。");
@@ -532,6 +555,23 @@ export default function App() {
 
     return { monthAgoDate, yearAgoDate, monthAgoEntry, yearAgoEntry, season, seasonEntry };
   }, [entries]);
+
+  const inlineMemories = useMemo(() => {
+    const items: Array<{ label: string; entry: DiaryEntry }> = [];
+    const monthAgoDate = monthsAgoExact(activeDate, 1);
+    const monthAgoEntry = monthAgoDate ? entries.find((item) => item.date === monthAgoDate) : undefined;
+    if (monthAgoEntry) {
+      const [, month, day] = monthAgoEntry.date.split("-");
+      items.push({ label: `1か月前（${Number(month)}月${Number(day)}日）`, entry: monthAgoEntry });
+    }
+    const yearAgoDate = yearsAgoExact(activeDate, 1);
+    const yearAgoEntry = yearAgoDate ? entries.find((item) => item.date === yearAgoDate) : undefined;
+    if (yearAgoEntry) {
+      const [year, month, day] = yearAgoEntry.date.split("-");
+      items.push({ label: `1年前（${Number(year)}年${Number(month)}月${Number(day)}日）`, entry: yearAgoEntry });
+    }
+    return items;
+  }, [activeDate, entries]);
 
   async function exportJson() {
     const payload = {
@@ -984,6 +1024,7 @@ export default function App() {
               onBack={() => setTab("list")}
               onStartEditing={startEditing}
               onExportMarkdown={exportEntryMarkdownWithoutSave}
+              onExportHorenso={exportHorensoWithoutSave}
               weeklyReview={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
               monthlyReview={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
             />
@@ -995,6 +1036,7 @@ export default function App() {
               onRetrySave={retrySave}
               onChange={updateEntry}
               onExportMarkdown={() => void exportEntryMarkdown()}
+              onExportHorenso={() => void exportHorenso()}
               onMoveDate={openDate}
               onDelete={() => void removeCurrentEntry()}
               initialBodyExpanded={initialBodyExpanded}
@@ -1008,6 +1050,7 @@ export default function App() {
               onSaveWeeklyReview={persistWeeklyReview}
               onSaveMonthlyReview={persistMonthlyReview}
               weeklyGoalTemplate={settings.weeklyGoalTemplate}
+              inlineMemories={inlineMemories}
             />
           )
         )}

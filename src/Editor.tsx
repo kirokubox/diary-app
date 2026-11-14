@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { monthOf, timeOnly, weekStartOf } from "./dateUtils";
 import { makeScratchItem } from "./diaryHelpers";
 import { Icon } from "./Icon";
@@ -32,6 +33,7 @@ export function Editor({
   onSaveMonthlyReview,
   weeklyGoalTemplate,
   inlineMemories,
+  welcome,
 }: {
   entry: DiaryEntry;
   saveState: SaveState;
@@ -54,6 +56,8 @@ export function Editor({
   onSaveMonthlyReview: (month: string, goalTheme: string, reflection: string) => void | Promise<void>;
   weeklyGoalTemplate: string;
   inlineMemories: InlineMemory[];
+  /** 日記が1件もない人に出す「はじめに」（無ければ null） */
+  welcome: ReactNode;
 }) {
   const [bodyExpanded, setBodyExpanded] = useState(initialBodyExpanded);
   const [freeScratchExpanded, setFreeScratchExpanded] = useState(false);
@@ -108,6 +112,7 @@ export function Editor({
             <button className="btn" type="button" onClick={onRetrySave}>もう一度保存</button>
           </div>
         )}
+        {welcome}
         <PeriodGoalSummary
           weekly={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
           monthly={monthlyReviews.find((item) => item.month === monthOf(entry.date))}

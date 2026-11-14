@@ -15,6 +15,7 @@ import { MonthlyReviewHub } from "./PeriodReviewUI";
 import { normalizeMonthlyReview, normalizeWeeklyReview, periodContextForDate } from "./periodReviews";
 import { formatByteSize, makePhotoId, photoExtension, preparePhoto } from "./photos";
 import { ReadingView } from "./ReadingView";
+import { WelcomeCard } from "./WelcomeCard";
 import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, requestPersist, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
 import { buildSearchSnippet } from "./summary";
 import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
@@ -26,6 +27,8 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("today");
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  // 「はじめに」は、日記が1件もない状態で開いたときだけ出す。書いている途中で消えないよう、起動時に1回だけ決める
+  const [showWelcome, setShowWelcome] = useState(false);
   const [weeklyReviews, setWeeklyReviews] = useState<WeeklyReview[]>([]);
   const [monthlyReviews, setMonthlyReviews] = useState<MonthlyReview[]>([]);
   const [selectedReviewMonth, setSelectedReviewMonth] = useState(monthOf(toDateInputValue()));
@@ -99,6 +102,7 @@ export default function App() {
       setTemplateDraft(loadedSettings.template);
       setWeeklyGoalTemplateDraft(loadedSettings.weeklyGoalTemplate);
       setEntries(loadedEntries);
+      setShowWelcome(loadedEntries.length === 0);
       setWeeklyReviews(loadedWeeklyReviews);
       setMonthlyReviews(loadedMonthlyReviews);
       setActiveDate(initialDate);
@@ -1051,6 +1055,7 @@ export default function App() {
               onSaveMonthlyReview={persistMonthlyReview}
               weeklyGoalTemplate={settings.weeklyGoalTemplate}
               inlineMemories={inlineMemories}
+              welcome={showWelcome ? <WelcomeCard onOpenList={() => setTab("list")} onOpenSettings={() => setTab("settings")} /> : null}
             />
           )
         )}

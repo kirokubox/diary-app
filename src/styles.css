@@ -1514,3 +1514,15 @@ main {
   font-size: var(--kb-fs-xs);
   color: var(--kb-text-2);
 }
+
+/* はじめに（日記が1件もない状態で開いたときだけ） */
+.welcome-card { padding: var(--kb-space-3) 0 var(--kb-space-2); }
+.welcome-title { margin: 0; padding: 0 var(--kb-space-4) var(--kb-space-2); font-size: var(--kb-fs-l); }
+.welcome-steps { list-style: none; margin: 0; padding: 0; }
+.welcome-row { display: flex; align-items: flex-start; gap: var(--kb-space-2); width: 100%; min-height: 44px; padding: var(--kb-space-2) var(--kb-space-4); border: 0; border-top: 1px solid var(--kb-line); background: none; color: inherit; font: inherit; font-size: var(--kb-fs-s); text-align: left; }
+button.welcome-row { align-items: center; cursor: pointer; }
+.welcome-no { flex: none; width: 1.5em; color: var(--kb-accent-strong); font-weight: 700; }
+.welcome-text { flex: 1; min-width: 0; }
+.welcome-example { display: block; margin-top: 2px; color: var(--kb-text-sub, inherit); opacity: 0.75; font-size: var(--kb-fs-xs, 0.75rem); line-height: 1.6; }
+.welcome-note { margin: 0; padding: var(--kb-space-2) var(--kb-space-4) 0; border-top: 1px solid var(--kb-line); opacity: 0.8; font-size: var(--kb-fs-xs, 0.75rem); line-height: 1.7; }
+.welcome-link { margin-left: 4px; padding: 4px 6px; border: 0; background: none; color: var(--kb-accent); font: inherit; font-weight: 600; cursor: pointer; }

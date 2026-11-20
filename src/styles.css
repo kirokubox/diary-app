@@ -879,33 +879,108 @@ main {
   border-top: 1px solid var(--kb-line);
 }
 
-.inline-memory-head {
+/* 1行カード：1行目「2年前 2024年11月20日（水）」、2行目に本文の最初の1行 */
+.inline-memory {
+  display: flex;
+  align-items: center;
+  gap: var(--kb-space-3);
+  width: 100%;
+  min-height: 60px;
+  padding: var(--kb-space-3) var(--kb-space-4);
+  color: var(--kb-text-2);
+  text-align: left;
+}
+
+.inline-memory:active {
+  background: var(--kb-surface-2);
+}
+
+.inline-memory-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.inline-memory-label {
+  color: var(--kb-text);
+  font-size: var(--kb-fs-m);
+  font-weight: 700;
+}
+
+.inline-memory-date {
+  margin-left: var(--kb-space-2);
+  color: var(--kb-text-2);
+  font-size: var(--kb-fs-s);
+  font-weight: 400;
+}
+
+.inline-memory-preview {
+  overflow: hidden;
+  color: var(--kb-text-2);
+  font-size: var(--kb-fs-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 過去の日記を読む、下から出るシート。中身は閲覧モードと同じ部品 */
+.memory-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(18, 25, 29, 0.4);
+  animation: fade-in 0.16s ease-out;
+}
+
+.memory-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(100%, 640px);
+  max-height: 88dvh;
+  border-radius: var(--kb-radius-l) var(--kb-radius-l) 0 0;
+  background: var(--kb-bg);
+  animation: memory-sheet-in 0.16s ease-out;
+}
+
+@keyframes memory-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+.memory-sheet-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--kb-space-3);
-  width: 100%;
-  min-height: 52px;
-  padding: 0 var(--kb-space-4);
-  color: var(--kb-text);
-  font-size: var(--kb-fs-m);
-  font-weight: 700;
-  text-align: left;
+  padding: var(--kb-space-4) var(--kb-space-3) var(--kb-space-2) var(--kb-space-4);
 }
 
-.inline-memory-head:active {
-  background: var(--kb-surface-2);
+.memory-sheet-label {
+  margin: 0;
+  color: var(--kb-text-2);
+  font-size: var(--kb-fs-s);
 }
 
-.inline-memory-body {
+.memory-sheet-title {
+  margin: 0;
+  font-size: var(--kb-fs-l);
+}
+
+.memory-sheet-body {
   display: grid;
+  align-content: start;
   gap: var(--kb-space-4);
-  border-top: 1px solid var(--kb-line);
-  padding: var(--kb-space-4);
-  background: var(--kb-surface-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--kb-space-2) var(--kb-space-4) calc(var(--kb-space-6) + env(safe-area-inset-bottom));
 }
 
-.inline-memory-body .reading-section {
+.memory-sheet-body .reading-section {
   display: grid;
   gap: var(--kb-space-2);
 }

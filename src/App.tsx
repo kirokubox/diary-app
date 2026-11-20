@@ -564,15 +564,15 @@ export default function App() {
     const items: Array<{ label: string; entry: DiaryEntry }> = [];
     const monthAgoDate = monthsAgoExact(activeDate, 1);
     const monthAgoEntry = monthAgoDate ? entries.find((item) => item.date === monthAgoDate) : undefined;
-    if (monthAgoEntry) {
-      const [, month, day] = monthAgoEntry.date.split("-");
-      items.push({ label: `1か月前（${Number(month)}月${Number(day)}日）`, entry: monthAgoEntry });
-    }
-    const yearAgoDate = yearsAgoExact(activeDate, 1);
-    const yearAgoEntry = yearAgoDate ? entries.find((item) => item.date === yearAgoDate) : undefined;
-    if (yearAgoEntry) {
-      const [year, month, day] = yearAgoEntry.date.split("-");
-      items.push({ label: `1年前（${Number(year)}年${Number(month)}月${Number(day)}日）`, entry: yearAgoEntry });
+    if (monthAgoEntry) items.push({ label: "1か月前", entry: monthAgoEntry });
+    // 同じ日の何年分：いちばん古い日記の年までさかのぼり、記録がある年だけ並べる
+    const byDate = new Map(entries.map((item) => [item.date, item]));
+    const activeYear = Number(activeDate.slice(0, 4));
+    const oldestYear = entries.reduce((min, item) => Math.min(min, Number(item.date.slice(0, 4))), activeYear);
+    for (let years = 1; years <= activeYear - oldestYear; years += 1) {
+      const date = yearsAgoExact(activeDate, years);
+      const entry = date ? byDate.get(date) : undefined;
+      if (entry) items.push({ label: `${years}年前`, entry });
     }
     return items;
   }, [activeDate, entries]);

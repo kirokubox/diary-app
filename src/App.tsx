@@ -1194,10 +1194,10 @@ export default function App() {
 
             <div className="screen-body">
               <section className="list-section">
-                <h2 className="section-title">振り返りのテンプレート</h2>
+                <h2 className="section-title">振り返りの見出し</h2>
                 <details className="card details">
                   <summary>
-                    テンプレートを編集
+                    見出しを選ぶ・変える
                     <Icon name="chevron-down" size={18} />
                   </summary>
                   <div className="details-body">
@@ -1216,7 +1216,7 @@ export default function App() {
                       ))}
                     </div>
                     <textarea
-                      aria-label="振り返りのテンプレート"
+                      aria-label="振り返りの見出し"
                       className="template-editor"
                       value={templateDraft}
                       onChange={(event) => setTemplateDraft(event.target.value)}
@@ -1234,15 +1234,15 @@ export default function App() {
               </section>
 
               <section className="list-section">
-                <h2 className="section-title">週目標のテンプレート</h2>
+                <h2 className="section-title">週目標の見出し</h2>
                 <details className="card details">
                   <summary>
-                    テンプレートを編集
+                    見出しを選ぶ・変える
                     <Icon name="chevron-down" size={18} />
                   </summary>
                   <div className="details-body">
                     <textarea
-                      aria-label="週目標のテンプレート"
+                      aria-label="週目標の見出し"
                       className="template-editor"
                       value={weeklyGoalTemplateDraft}
                       onChange={(event) => setWeeklyGoalTemplateDraft(event.target.value)}

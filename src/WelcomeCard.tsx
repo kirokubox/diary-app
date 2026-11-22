@@ -32,7 +32,7 @@ export function WelcomeCard({ onOpenList, onOpenSettings }: { onOpenList: () => 
         </li>
       </ol>
       <p className="welcome-note">
-        日記はこの端末の中だけに保存されます。見出しは設定の「テンプレートを編集」で変えられ、短く書きたい人向けの「シンプルな日記」も選べます。
+        日記はこの端末の中だけに保存されます。見出しは設定の「見出しを選ぶ・変える」で変えられ、短く書きたい人向けの「シンプルな日記」も選べます。
         <button type="button" className="welcome-link" onClick={onOpenSettings}>設定を開く</button>
       </p>
     </section>

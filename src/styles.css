@@ -339,9 +339,28 @@ main {
   color: var(--kb-accent-strong);
   font-size: var(--kb-fs-m);
   font-weight: 700;
+  white-space: nowrap;
   transition:
     transform var(--kb-dur) var(--kb-ease),
     background var(--kb-dur) var(--kb-ease);
+}
+
+/* 上のバーのボタンは縮めない（狭い幅で「編集」が縦に折れるのを防ぐ。日付のほうを省略させる） */
+.app-bar > .btn {
+  flex: none;
+}
+
+/* 閲覧モードの上のバー（戻る・日付・今日・編集・…）が390px幅でも曜日まで入るよう、余白を詰める */
+.app-bar > .btn.small {
+  padding: 0 var(--kb-space-3);
+}
+
+.app-bar .today-btn {
+  padding: 0 var(--kb-space-1);
+}
+
+.app-bar .date-jump {
+  padding: 0 2px;
 }
 
 .btn:active {

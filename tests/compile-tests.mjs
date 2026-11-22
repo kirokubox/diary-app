@@ -36,6 +36,8 @@ await compile("src/markdown.ts", "markdown.mjs", [
   ["./summary", "./summary.mjs"],
 ]);
 await compile("src/summary.ts", "summary.mjs");
+await compile("src/journey.ts", "journey.mjs", [["./dateUtils", "./dateUtils.mjs"], ["./summary", "./summary.mjs"]]);
+await compile("tests/journey.test.ts", "journey.test.mjs", [["../src/journey", "./journey.mjs"]]);
 await compile("tests/lifeMetrics.test.ts", "lifeMetrics.test.mjs", [
   ["../src/dateUtils", "./dateUtils.mjs"],
   ["../src/diaryHelpers", "./diaryHelpers.mjs"],

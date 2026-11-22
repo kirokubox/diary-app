@@ -1,12 +1,12 @@
 {
   "name": "yuki-diary-app",
   "private": true,
-  "version": "2.7.2",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node tests/compile-tests.mjs && node --test .test-build/lifeMetrics.test.mjs",
+    "test": "node tests/compile-tests.mjs && node --test .test-build/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

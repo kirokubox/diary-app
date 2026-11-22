@@ -18,6 +18,8 @@ import { ReadingView } from "./ReadingView";
 import { WelcomeCard } from "./WelcomeCard";
 import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, requestPersist, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
 import { buildSearchSnippet } from "./summary";
+import { journeySummary } from "./journey";
+import { JourneyView } from "./JourneyView";
 import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
 import { createZipBlob, readZipEntries } from "./zip";
 import type { ZipInputFile } from "./zip";
@@ -57,6 +59,7 @@ export default function App() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [journeyOpen, setJourneyOpen] = useState(false);
   const [templateDraft, setTemplateDraft] = useState(DEFAULT_TEMPLATE);
   const [weeklyGoalTemplateDraft, setWeeklyGoalTemplateDraft] = useState(DEFAULT_WEEKLY_GOAL_TEMPLATE);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
@@ -1014,6 +1017,7 @@ export default function App() {
   ];
   // 過去の日記を読んでいるあいだは、入口である「一覧」を選択中として見せる
   const activeTab: TabKey = tab === "today" && entryViewMode === "read" ? "list" : tab;
+  const journey = useMemo(() => journeySummary(entries, toDateInputValue()), [entries]);
 
   return (
     <div className="app-shell">
@@ -1060,7 +1064,7 @@ export default function App() {
           )
         )}
 
-        {tab === "list" && (
+        {tab === "list" && (journeyOpen ? <JourneyView entries={entries} today={toDateInputValue()} onBack={() => setJourneyOpen(false)} onOpenMonth={(month) => { setJourneyOpen(false); setQuery(""); setFromDate(`${month}-01`); setToDate(`${month}-31`); setFilterOpen(true); }} /> : (
           <div className="screen">
             <AppBar>
               <h1 className="app-bar-title">一覧</h1>
@@ -1069,6 +1073,7 @@ export default function App() {
             </AppBar>
 
             <div className="screen-body">
+              <button type="button" className="card journey-entry" onClick={() => setJourneyOpen(true)}><strong>あゆみ</strong><span>今月 {journey.thisMonth.characters.toLocaleString()}字・今年 {journey.thisYearCharacters.toLocaleString()}字</span><span aria-hidden="true">›</span></button>
               <div className="search-row">
                 <label className="search-box">
                   <Icon name="search" size={18} />
@@ -1184,7 +1189,7 @@ export default function App() {
               )}
             </div>
           </div>
-        )}
+        ))}
 
         {tab === "settings" && (
           <div className="screen settings-screen">

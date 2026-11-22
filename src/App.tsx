@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompactEntryCard } from "./CompactEntryCard";
 import { APP_VERSION, DEFAULT_SETTINGS, DEFAULT_TEMPLATE, DEFAULT_WEEKLY_GOAL_TEMPLATE, PHOTO_MAX_COUNT, TEMPLATE_PRESETS } from "./constants";
-import { formatMonthLabel, monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
+import { addDays, addMonths, formatMonthLabel, monthOf, monthsAgoExact, nowIsoLocal, pickDailyStable, seasonOf, timeOnly, toDateInputValue, weekdayOf, weekStartOf, yearsAgoExact } from "./dateUtils";
 import { PHOTO_BACKUP_README, cleanTag, formatShortDate, issueLabel, makeEntry, normalizeScratchItems, parseHours, validateImportedEntry } from "./diaryHelpers";
 import type { ImportIssue, ImportPreview, ImportSkip, ZipPhotoPayload } from "./diaryHelpers";
 import { Editor } from "./Editor";
@@ -1064,7 +1064,7 @@ export default function App() {
           )
         )}
 
-        {tab === "list" && (journeyOpen ? <JourneyView entries={entries} today={toDateInputValue()} onBack={() => setJourneyOpen(false)} onOpenMonth={(month) => { setJourneyOpen(false); setQuery(""); setFromDate(`${month}-01`); setToDate(`${month}-31`); setFilterOpen(true); }} /> : (
+        {tab === "list" && (journeyOpen ? <JourneyView entries={entries} today={toDateInputValue()} onBack={() => setJourneyOpen(false)} onOpenMonth={(month) => { setJourneyOpen(false); setQuery(""); setFromDate(`${month}-01`); setToDate(addDays(`${addMonths(month, 1)}-01`, -1)); setFilterOpen(true); }} /> : (
           <div className="screen">
             <AppBar>
               <h1 className="app-bar-title">一覧</h1>

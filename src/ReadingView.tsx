@@ -11,6 +11,7 @@ export function ReadingView({
   onStartEditing,
   onExportMarkdown,
   onExportHorenso,
+  onOpenSettings,
   weeklyReview,
   monthlyReview,
 }: {
@@ -21,6 +22,7 @@ export function ReadingView({
   onStartEditing: () => void;
   onExportMarkdown: () => void;
   onExportHorenso: () => void;
+  onOpenSettings: () => void;
   weeklyReview?: WeeklyReview;
   monthlyReview?: MonthlyReview;
 }) {
@@ -38,6 +40,7 @@ export function ReadingView({
             <OverflowMenu items={[
               { label: "この日をテキストで書き出す", icon: "text", onSelect: onExportMarkdown },
               { label: "報連相だけ書き出す", icon: "text", onSelect: onExportHorenso },
+              { label: "設定", icon: "settings", onSelect: onOpenSettings },
             ]} />
           </>
         )}

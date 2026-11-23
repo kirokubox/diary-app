@@ -90,5 +90,5 @@ export interface DiaryExport {
   monthlyReviews: MonthlyReview[];
 }
 
-export type TabKey = "today" | "list" | "settings";
+export type TabKey = "today" | "list" | "journey";
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";

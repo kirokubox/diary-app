@@ -21,6 +21,7 @@ export function Editor({
   onExportHorenso,
   onMoveDate,
   onDelete,
+  onOpenSettings,
   initialBodyExpanded,
   bodyOpenVersion,
   photoBusy,
@@ -44,6 +45,7 @@ export function Editor({
   onExportHorenso: () => void;
   onMoveDate: (date: string) => void | Promise<void>;
   onDelete: () => void;
+  onOpenSettings: () => void;
   initialBodyExpanded: boolean;
   bodyOpenVersion: number;
   photoBusy: boolean;
@@ -100,6 +102,7 @@ export function Editor({
           items={[
             { label: "この日をテキストで書き出す", icon: "text", onSelect: onExportMarkdown },
             { label: "報連相だけ書き出す", icon: "text", onSelect: onExportHorenso },
+            { label: "設定", icon: "settings", onSelect: onOpenSettings },
             { label: "この日の日記を削除", icon: "trash", danger: true, onSelect: onDelete },
           ]}
         />

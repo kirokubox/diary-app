@@ -18,7 +18,6 @@ import { ReadingView } from "./ReadingView";
 import { WelcomeCard } from "./WelcomeCard";
 import { clearEntries, clearMonthlyReviews, clearPhotos, clearSettings, clearWeeklyReviews, deleteEntry, deletePhoto, deleteUnreferencedPhotos, getAllEntries, getAllMonthlyReviews, getAllPhotoIds, getAllPhotos, getAllWeeklyReviews, getEntry, getPhotoStorageStats, getSettings, normalizePhotoMeta, putPhoto, requestPersist, saveEntry, saveMonthlyReview, saveSettings, saveWeeklyReview } from "./storage";
 import { buildSearchSnippet } from "./summary";
-import { journeySummary } from "./journey";
 import { JourneyView } from "./JourneyView";
 import type { AppSettings, DiaryEntry, DiaryPhoto, MonthlyReview, SaveState, ScratchItem, TabKey, WeeklyReview } from "./types";
 import { createZipBlob, readZipEntries } from "./zip";
@@ -59,7 +58,7 @@ export default function App() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [journeyOpen, setJourneyOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [templateDraft, setTemplateDraft] = useState(DEFAULT_TEMPLATE);
   const [weeklyGoalTemplateDraft, setWeeklyGoalTemplateDraft] = useState(DEFAULT_WEEKLY_GOAL_TEMPLATE);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
@@ -143,9 +142,9 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", flush);
   }, []);
 
-  // 設定タブを開いたときと写真が増減したときに、写真の保存容量を測り直す
+  // 設定画面を開いたときと写真が増減したときに、写真の保存容量を測り直す
   useEffect(() => {
-    if (tab !== "settings") return;
+    if (!settingsOpen) return;
     let cancelled = false;
     async function loadStorageInfo() {
       try {
@@ -166,7 +165,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [tab, entries, photoStoreVersion]);
+  }, [settingsOpen, entries, photoStoreVersion]);
 
   useEffect(() => {
     async function loadEntry() {
@@ -1013,17 +1012,16 @@ export default function App() {
   const tabs: Array<{ key: TabKey; label: string; icon: IconName }> = [
     { key: "today", label: "日記", icon: "pencil" },
     { key: "list", label: "一覧", icon: "list" },
-    { key: "settings", label: "設定", icon: "settings" },
+    { key: "journey", label: "あゆみ", icon: "chart" },
   ];
   // 過去の日記を読んでいるあいだは、入口である「一覧」を選択中として見せる
   const activeTab: TabKey = tab === "today" && entryViewMode === "read" ? "list" : tab;
-  const journey = useMemo(() => journeySummary(entries, toDateInputValue()), [entries]);
 
   return (
     <div className="app-shell">
       {!isOnline && <div className="offline-badge">オフライン</div>}
       <main>
-        {tab === "today" && entry && (
+        {!settingsOpen && tab === "today" && entry && (
           entryViewMode === "read" ? (
             <ReadingView
               entry={entry}
@@ -1033,6 +1031,7 @@ export default function App() {
               onStartEditing={startEditing}
               onExportMarkdown={exportEntryMarkdownWithoutSave}
               onExportHorenso={exportHorensoWithoutSave}
+              onOpenSettings={() => setSettingsOpen(true)}
               weeklyReview={weeklyReviews.find((item) => item.weekStart === weekStartOf(entry.date))}
               monthlyReview={monthlyReviews.find((item) => item.month === monthOf(entry.date))}
             />
@@ -1047,6 +1046,7 @@ export default function App() {
               onExportHorenso={() => void exportHorenso()}
               onMoveDate={openDate}
               onDelete={() => void removeCurrentEntry()}
+              onOpenSettings={() => setSettingsOpen(true)}
               initialBodyExpanded={initialBodyExpanded}
               bodyOpenVersion={bodyOpenVersion}
               photoBusy={photoBusy}
@@ -1059,21 +1059,21 @@ export default function App() {
               onSaveMonthlyReview={persistMonthlyReview}
               weeklyGoalTemplate={settings.weeklyGoalTemplate}
               inlineMemories={inlineMemories}
-              welcome={showWelcome ? <WelcomeCard onOpenList={() => setTab("list")} onOpenSettings={() => setTab("settings")} /> : null}
+              welcome={showWelcome ? <WelcomeCard onOpenList={() => setTab("list")} onOpenSettings={() => setSettingsOpen(true)} /> : null}
             />
           )
         )}
 
-        {tab === "list" && (journeyOpen ? <JourneyView entries={entries} today={toDateInputValue()} onBack={() => setJourneyOpen(false)} onOpenMonth={(month) => { setJourneyOpen(false); setQuery(""); setFromDate(`${month}-01`); setToDate(addDays(`${addMonths(month, 1)}-01`, -1)); setFilterOpen(true); }} /> : (
+        {!settingsOpen && tab === "list" && (
           <div className="screen">
             <AppBar>
               <h1 className="app-bar-title">一覧</h1>
               <span className="spacer" />
               <span className="count">{isSearching ? searchResults.length : entries.length}件</span>
+              <button type="button" className="icon-btn" aria-label="設定" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={20} /></button>
             </AppBar>
 
             <div className="screen-body">
-              <button type="button" className="card journey-entry" onClick={() => setJourneyOpen(true)}><strong>あゆみ</strong><span>今月 {journey.thisMonth.characters.toLocaleString()}字・今年 {journey.thisYearCharacters.toLocaleString()}字</span><span aria-hidden="true">›</span></button>
               <div className="search-row">
                 <label className="search-box">
                   <Icon name="search" size={18} />
@@ -1137,15 +1137,6 @@ export default function App() {
                 )
               ) : (
                 <>
-                  <MonthlyReviewHub
-                    selectedMonth={selectedReviewMonth}
-                    onMonthChange={setSelectedReviewMonth}
-                    weeklyReviews={weeklyReviews}
-                    monthlyReviews={monthlyReviews}
-                    onSaveWeekly={persistWeeklyReview}
-                    onSaveMonthly={persistMonthlyReview}
-                    weeklyGoalTemplate={settings.weeklyGoalTemplate}
-                  />
                   {entries.length === 0 ? (
                     <div className="empty-state">
                       <p>まだ日記はありません。</p>
@@ -1189,11 +1180,16 @@ export default function App() {
               )}
             </div>
           </div>
-        ))}
+        )}
 
-        {tab === "settings" && (
+        {!settingsOpen && tab === "journey" && <JourneyView entries={entries} today={toDateInputValue()} onOpenSettings={() => setSettingsOpen(true)} onOpenMonth={(month) => { setTab("list"); setQuery(""); setFromDate(`${month}-01`); setToDate(addDays(`${addMonths(month, 1)}-01`, -1)); setFilterOpen(true); }}>
+          <MonthlyReviewHub selectedMonth={selectedReviewMonth} onMonthChange={setSelectedReviewMonth} weeklyReviews={weeklyReviews} monthlyReviews={monthlyReviews} onSaveWeekly={persistWeeklyReview} onSaveMonthly={persistMonthlyReview} weeklyGoalTemplate={settings.weeklyGoalTemplate} />
+        </JourneyView>}
+
+        {settingsOpen && (
           <div className="screen settings-screen">
             <AppBar>
+              <button type="button" className="icon-btn" aria-label="戻る" onClick={() => setSettingsOpen(false)}><Icon name="arrow-left" size={20} /></button>
               <h1 className="app-bar-title">設定</h1>
             </AppBar>
 
@@ -1550,7 +1546,7 @@ export default function App() {
         </div>
       )}
 
-      <nav className="bottom-tabs" aria-label="画面切り替え">
+      {!settingsOpen && <nav className="bottom-tabs" aria-label="画面切り替え">
         {tabs.map((item) => (
           <button
             aria-current={activeTab === item.key ? "page" : undefined}
@@ -1568,7 +1564,7 @@ export default function App() {
             <span>{item.label}</span>
           </button>
         ))}
-      </nav>
+      </nav>}
     </div>
   );
 }

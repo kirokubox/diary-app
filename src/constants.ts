@@ -1,6 +1,6 @@
 import type { AppSettings, Energy, Mood } from "./types";
 
-export const APP_VERSION = "2.9.1";
+export const APP_VERSION = "3.0.0";
 
 // 標準：事実・感情・振り返りを分けて書く形（作者が使っている形）
 export const DEFAULT_TEMPLATE = `■1. 今日の事実

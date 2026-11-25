@@ -1189,7 +1189,7 @@ export default function App() {
         {settingsOpen && (
           <div className="screen settings-screen">
             <AppBar>
-              <button type="button" className="icon-btn" aria-label="戻る" onClick={() => setSettingsOpen(false)}><Icon name="arrow-left" size={20} /></button>
+              <button type="button" className="icon-btn" aria-label="戻る" onClick={() => setSettingsOpen(false)}><Icon name="chevron-left" size={22} /></button>
               <h1 className="app-bar-title">設定</h1>
             </AppBar>
 
@@ -1258,7 +1258,7 @@ export default function App() {
               </section>
 
               <section className="list-section">
-                <h2 className="section-title">バックアップ</h2>
+                <h2 className="section-title">データ</h2>
                 <div className="card list-rows">
                   <button className="row-btn" onClick={() => void exportJson()} type="button">
                     <Icon name="download" />
@@ -1427,27 +1427,16 @@ export default function App() {
 
               <section className="list-section">
                 <h2 className="section-title">写真の保存容量</h2>
-                <div className="card pad">
-                  {storageInfo ? (
-                    <div className="stat-grid two">
-                      <span>保存枚数：{storageInfo.count}枚</span>
-                      <span>写真の合計：{formatByteSize(storageInfo.byteSize)}</span>
-                      <span>
-                        アプリ全体：
-                        {storageInfo.usage === null ? "-" : formatByteSize(storageInfo.usage)}
-                      </span>
-                      <span>
-                        使える上限：
-                        {storageInfo.quota === null ? "-" : formatByteSize(storageInfo.quota)}
-                      </span>
-                    </div>
-                  ) : (
-                    <p className="empty">保存容量を取得できませんでした。</p>
-                  )}
-                  <p className="note">
-                    写真は追加したときに小さくして保存します（撮影場所などの情報は残りません）。元の写真は端末のギャラリーにそのまま残ります。
-                  </p>
-                </div>
+                {storageInfo ? (
+                  <div className="card list-rows value-rows">
+                    <div className="value-row"><span>写真</span><span>{storageInfo.count}枚・{formatByteSize(storageInfo.byteSize)}</span></div>
+                    <div className="value-row"><span>アプリ全体</span><span>{storageInfo.usage === null ? "-" : formatByteSize(storageInfo.usage)}</span></div>
+                    <div className="value-row"><span>使える上限</span><span>{storageInfo.quota === null ? "-" : formatByteSize(storageInfo.quota)}</span></div>
+                  </div>
+                ) : (
+                  <p className="empty">保存容量を取得できませんでした。</p>
+                )}
+                <p className="section-foot">写真は小さくして保存します（撮影場所などの情報は残りません）。元の写真は端末に残ります。</p>
               </section>
 
               <section className="list-section">

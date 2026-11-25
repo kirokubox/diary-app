@@ -1646,3 +1646,10 @@ button.welcome-row { align-items: center; cursor: pointer; }
 .journey-legend-max { margin-left: auto; }
 .journey-dot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; background: var(--kb-accent); vertical-align: 0; }
 .journey-dot.previous { background: var(--kb-line); }
+
+/* 設定：値の行（v3.1.0。前は「保存枚数：0枚」のタイル） */
+.value-rows { padding: 0; }
+.value-row { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; font-size: 0.95rem; }
+.value-row + .value-row { border-top: 1px solid var(--kb-line, #e3e9ec); }
+.value-row span:last-child { color: var(--kb-text-2, #55656d); font-variant-numeric: tabular-nums; }
+.section-foot { margin: 6px 4px 0; color: var(--kb-text-2, #55656d); font-size: 0.75rem; line-height: 1.5; }

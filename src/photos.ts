@@ -27,7 +27,8 @@ export function photoExtension(mimeType: string): string {
 export function formatByteSize(byteSize: number): string {
   if (byteSize < 1024) return `${byteSize}B`;
   if (byteSize < 1024 * 1024) return `${(byteSize / 1024).toFixed(0)}KB`;
-  return `${(byteSize / (1024 * 1024)).toFixed(1)}MB`;
+  if (byteSize < 1024 * 1024 * 1024) return `${(byteSize / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(byteSize / (1024 * 1024 * 1024)).toFixed(1)}GB`;
 }
 
 // createImageBitmap の imageOrientation でEXIFの向きを適用してから描画する。
